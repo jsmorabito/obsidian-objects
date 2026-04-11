@@ -2,6 +2,8 @@
 'use strict';
 
 const obsidian = require('obsidian');
+const { ViewPlugin, Decoration } = require('@codemirror/view');
+const { RangeSetBuilder } = require('@codemirror/state');
 
 // ─── Default Settings ─────────────────────────────────────────────────────────
 
@@ -440,7 +442,7 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
     new obsidian.Setting(containerEl).addButton((btn) =>
       btn.setButtonText('＋ Add Object Type').setCta().onClick(async () => {
         const id = `ffc-objtype-${Date.now()}`;
-        this.plugin.settings.objectTypes.push({ id, name: 'New Object', templatePath: '', saveFolder: '', fields: [] });
+        this.plugin.settings.objectTypes.push({ id, name: 'New Object', templatePath: '', saveFolder: '', fields: [], matchFilters: [], matchMode: 'all', enableFindCommand: false, showInTriggerMenu: false, previewFields: [] });
         await this.plugin.saveSettings();
         this.plugin.registerObjectTypeCommand(this.plugin.settings.objectTypes[this.plugin.settings.objectTypes.length - 1]);
         this.display();
@@ -549,7 +551,76 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
           obj.name = value;
           await this.plugin.saveSettings();
           if (this.plugin.commandRefs?.[obj.id]) this.plugin.commandRefs[obj.id].name = `Create new ${value}`;
+          const findCmdId = `${obj.id}-find`;
+          if (this.plugin.commandRefs?.[findCmdId]) this.plugin.commandRefs[findCmdId].name = `Find ${value}`;
         })
+      );
+
+    // ── Object Detection ──────────────────────────────────────────────────────
+    const detectionSection = block.createDiv({ cls: 'ffc-filters-section' });
+    detectionSection.createEl('p', { text: 'Object Detection', cls: 'ffc-filters-title' });
+    detectionSection.createEl('p', {
+      text: 'Filters that identify existing files of this type. Used by the trigger menu and the "Find" command. If no filters are set, files in the Save Folder are used as a fallback.',
+      cls: 'ffc-hint',
+    });
+
+    new obsidian.Setting(detectionSection)
+      .setName('Filter match mode')
+      .setDesc('Should a file match ALL filters (AND) or at least ONE filter (OR)?')
+      .addDropdown((dd) =>
+        dd
+          .addOption('all', 'Match ALL (AND)')
+          .addOption('any', 'Match ANY (OR)')
+          .setValue(obj.matchMode ?? 'all')
+          .onChange(async (value) => { obj.matchMode = value; await this.plugin.saveSettings(); })
+      );
+
+    if (!obj.matchFilters || obj.matchFilters.length === 0) {
+      detectionSection.createEl('p', { text: 'No filters — save folder will be used as a fallback.', cls: 'ffc-hint' });
+    }
+    for (let fi = 0; fi < (obj.matchFilters ?? []).length; fi++) {
+      this.renderObjectMatchFilter(detectionSection, index, fi);
+    }
+    new obsidian.Setting(detectionSection).addButton((btn) =>
+      btn.setButtonText('＋ Add Detection Filter').onClick(async () => {
+        if (!obj.matchFilters) obj.matchFilters = [];
+        obj.matchFilters.push({ key: '', operator: 'equals', value: '' });
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+
+    new obsidian.Setting(detectionSection)
+      .setName('Show in trigger menu')
+      .setDesc(`When enabled, matching files appear in the "${this.plugin.settings.triggerKey || '@'}" inline trigger menu.`)
+      .addToggle((toggle) =>
+        toggle.setValue(obj.showInTriggerMenu ?? false)
+          .onChange(async (value) => { obj.showInTriggerMenu = value; await this.plugin.saveSettings(); })
+      );
+
+    new obsidian.Setting(detectionSection)
+      .setName('Enable "Find" command')
+      .setDesc(`When enabled, adds a "Find ${obj.name}" command to the palette for fuzzy-searching files of this type.`)
+      .addToggle((toggle) =>
+        toggle.setValue(obj.enableFindCommand ?? false)
+          .onChange(async (value) => {
+            obj.enableFindCommand = value;
+            await this.plugin.saveSettings();
+            if (value) this.plugin.registerFindCommand(obj);
+          })
+      );
+
+    new obsidian.Setting(detectionSection)
+      .setName('Style object links')
+      .setDesc('When enabled, inline links to files of this type will have their underline removed and a background fill applied (using tag style variables).')
+      .addToggle((toggle) =>
+        toggle.setValue(obj.styledLinks ?? false)
+          .onChange(async (value) => {
+            obj.styledLinks = value;
+            await this.plugin.saveSettings();
+            this.plugin.buildStyledObjectSet();
+            this.plugin.refreshObjectLinkStyles();
+          })
       );
 
     // Template picker
@@ -591,40 +662,6 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
       btn.setButtonText('＋ Add Field').onClick(async () => {
         if (!obj.fields) obj.fields = [];
         obj.fields.push({ key: '', label: '', type: 'text' });
-        await this.plugin.saveSettings();
-        this.display();
-      })
-    );
-
-    // ── Trigger Menu Filters ──────────────────────────────────────────────────
-    const triggerSection = block.createDiv({ cls: 'ffc-filters-section' });
-    triggerSection.createEl('p', { text: 'Trigger Menu — Match Filters', cls: 'ffc-filters-title' });
-    triggerSection.createEl('p', {
-      text: 'Frontmatter filters that identify existing files of this type in the inline trigger menu. If no filters are set, files in the Save Folder are used instead.',
-      cls: 'ffc-hint',
-    });
-
-    new obsidian.Setting(triggerSection)
-      .setName('Filter match mode')
-      .setDesc('Should a file match ALL filters (AND) or at least ONE filter (OR)?')
-      .addDropdown((dd) =>
-        dd
-          .addOption('all', 'Match ALL (AND)')
-          .addOption('any', 'Match ANY (OR)')
-          .setValue(obj.matchMode ?? 'all')
-          .onChange(async (value) => { obj.matchMode = value; await this.plugin.saveSettings(); })
-      );
-
-    if (!obj.matchFilters || obj.matchFilters.length === 0) {
-      triggerSection.createEl('p', { text: 'No filters — save folder will be used as a fallback.', cls: 'ffc-hint' });
-    }
-    for (let fi = 0; fi < (obj.matchFilters ?? []).length; fi++) {
-      this.renderObjectMatchFilter(triggerSection, index, fi);
-    }
-    new obsidian.Setting(triggerSection).addButton((btn) =>
-      btn.setButtonText('＋ Add Match Filter').onClick(async () => {
-        if (!obj.matchFilters) obj.matchFilters = [];
-        obj.matchFilters.push({ key: '', operator: 'equals', value: '' });
         await this.plugin.saveSettings();
         this.display();
       })
@@ -837,33 +874,16 @@ class ObjectTypeSuggest extends obsidian.EditorSuggest {
       .slice(0, 30);
   }
 
-  /** Collect all files that match at least one object type's match filters. */
+  /** Collect all files matching object types that have showInTriggerMenu enabled. */
   _getMatchingFiles() {
     const plugin = this.plugin;
-    const allFiles = this.app.vault.getMarkdownFiles();
     const seen = new Set();
     const result = [];
 
     for (const objType of plugin.settings.objectTypes) {
-      const filters = objType.matchFilters ?? [];
-      const matchMode = objType.matchMode ?? 'all';
-
-      for (const file of allFiles) {
-        if (seen.has(file.path)) continue;
-
-        let matches = false;
-
-        if (filters.length > 0) {
-          const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
-          const results = filters.map((f) => plugin.evaluateFilter(fm, f, file));
-          matches = matchMode === 'all' ? results.every(Boolean) : results.some(Boolean);
-        } else if (objType.saveFolder?.trim()) {
-          // No filters defined: fall back to save-folder membership
-          const prefix = objType.saveFolder.trim().replace(/\/$/, '') + '/';
-          matches = file.path.startsWith(prefix);
-        }
-
-        if (matches) {
+      if (!objType.showInTriggerMenu) continue;
+      for (const file of plugin.getObjectTypeFiles(objType)) {
+        if (!seen.has(file.path)) {
           seen.add(file.path);
           result.push(file);
         }
@@ -897,6 +917,51 @@ class ObjectTypeSuggest extends obsidian.EditorSuggest {
   }
 }
 
+// ─── Object Link View Plugin (CM6 live-preview decoration) ───────────────────
+//
+// Scans the CM6 document for wikilinks whose targets are detected objects with
+// styledLinks enabled, and marks those ranges with the `ffc-obj-link` class so
+// CSS can remove the underline and add a background fill.
+
+function buildObjectLinkViewPlugin(ffcPlugin) {
+  return ViewPlugin.fromClass(
+    class {
+      constructor(view) { this.decorations = this.build(view); }
+
+      update(update) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = this.build(update.view);
+        }
+      }
+
+      build(view) {
+        const basenames        = ffcPlugin.styledObjectBasenames;
+        const previewBasenames = ffcPlugin.previewObjectBasenames;
+        const hasStyled  = basenames        && basenames.size > 0;
+        const hasPreview = previewBasenames && previewBasenames.size > 0;
+        if (!hasStyled && !hasPreview) return Decoration.none;
+        const builder = new RangeSetBuilder();
+        const text = view.state.doc.toString();
+        // Matches [[Target]], [[Target|Alias]], [[Target#Heading]], etc.
+        const re = /\[\[([^\]|#\n]+)(?:[|#][^\]\n]*)?\]\]/g;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+          const target = m[1].trim();
+          const targetBasename = target.includes('/') ? target.split('/').pop() : target;
+          const isStyled  = hasStyled  && (basenames.has(target)        || basenames.has(targetBasename));
+          const isPreview = hasPreview && (previewBasenames.has(target)  || previewBasenames.has(targetBasename));
+          if (isStyled || isPreview) {
+            const cls = [isStyled ? 'ffc-obj-link' : '', isPreview ? 'ffc-obj-preview-link' : ''].filter(Boolean).join(' ');
+            builder.add(m.index, m.index + m[0].length, Decoration.mark({ class: cls }));
+          }
+        }
+        return builder.finish();
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+}
+
 // ─── Plugin ───────────────────────────────────────────────────────────────────
 
 class FilteredFileCommandsPlugin extends obsidian.Plugin {
@@ -908,12 +973,46 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
     this.addSettingTab(new MyPluginSettingTab(this.app, this));
 
     for (const cmd of this.settings.commands) this.registerFilterCommand(cmd);
-    for (const obj of this.settings.objectTypes) this.registerObjectTypeCommand(obj);
+    for (const obj of this.settings.objectTypes) {
+      this.registerObjectTypeCommand(obj);
+      if (obj.enableFindCommand) this.registerFindCommand(obj);
+    }
     this.registerNewObjectCommand();
 
     // Register the inline trigger-key suggest
     this.objectTypeSuggest = new ObjectTypeSuggest(this.app, this);
     this.registerEditorSuggest(this.objectTypeSuggest);
+
+    // ── Object link styling ───────────────────────────────────────────────────
+    this.styledObjectBasenames  = new Set();
+    this.styledObjectPaths      = new Set();
+    this.previewObjectBasenames = new Set();
+    this.previewObjectPaths     = new Set();
+    this.buildStyledObjectSet();
+    this.injectLinkStyles();
+    this.register(() => document.getElementById('ffc-link-styles')?.remove());
+
+    // Reading mode: mark rendered <a class="internal-link"> elements
+    this.registerMarkdownPostProcessor((el) => {
+      el.querySelectorAll('a.internal-link[data-href]').forEach((link) => {
+        const href     = link.getAttribute('data-href').split('#')[0].trim();
+        const basename = href.includes('/') ? href.split('/').pop() : href;
+        if (this.styledObjectBasenames.has(href) || this.styledObjectBasenames.has(basename)) {
+          link.classList.add('ffc-obj-link');
+        }
+      });
+    });
+
+    // Live preview: CM6 decoration for wikilinks in source/live-preview mode
+    this.registerEditorExtension(buildObjectLinkViewPlugin(this));
+
+    // Rebuild whenever the metadata cache settles (new files, frontmatter edits, etc.)
+    this.registerEvent(
+      this.app.metadataCache.on('resolved', () => {
+        this.buildStyledObjectSet();
+        this.refreshObjectLinkStyles();
+      })
+    );
   }
 
   // ── Filtered file commands ────────────────────────────────────────────────────
@@ -945,6 +1044,24 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
       const results = cmd.filters.map((f) => this.evaluateFilter(fm, f, file));
       return cmd.matchMode === 'all' ? results.every(Boolean) : results.some(Boolean);
+    });
+  }
+
+  /** Return all vault files that match a single object type's detection filters. */
+  getObjectTypeFiles(obj) {
+    const filters = obj.matchFilters ?? [];
+    const matchMode = obj.matchMode ?? 'all';
+    const allFiles = this.app.vault.getMarkdownFiles();
+    return allFiles.filter((file) => {
+      if (filters.length > 0) {
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+        const results = filters.map((f) => this.evaluateFilter(fm, f, file));
+        return matchMode === 'all' ? results.every(Boolean) : results.some(Boolean);
+      } else if (obj.saveFolder?.trim()) {
+        const prefix = obj.saveFolder.trim().replace(/\/$/, '') + '/';
+        return file.path.startsWith(prefix);
+      }
+      return false;
     });
   }
 
@@ -985,6 +1102,24 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
     });
     this.commandRefs[obj.id] = registered;
     this.registeredCommandIds.add(obj.id);
+  }
+
+  registerFindCommand(obj) {
+    const cmdId = `${obj.id}-find`;
+    if (this.registeredCommandIds.has(cmdId)) return;
+    const registered = this.addCommand({
+      id: cmdId,
+      name: `Find ${obj.name}`,
+      callback: () => {
+        const current = this.settings.objectTypes.find((o) => o.id === obj.id);
+        if (!current) { new obsidian.Notice('Objects: Object type not found. Try reloading.'); return; }
+        const files = this.getObjectTypeFiles(current);
+        if (files.length === 0) { new obsidian.Notice('Objects: No files match this object type.'); return; }
+        new FilteredFileModal(this.app, files).open();
+      },
+    });
+    this.commandRefs[cmdId] = registered;
+    this.registeredCommandIds.add(cmdId);
   }
 
   registerNewObjectCommand() {
@@ -1174,10 +1309,118 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
       if (!obj.fields) obj.fields = [];
       if (!obj.matchFilters) obj.matchFilters = [];
       if (!obj.matchMode) obj.matchMode = 'all';
+      if (obj.enableFindCommand === undefined) obj.enableFindCommand = false;
+      if (obj.showInTriggerMenu === undefined) obj.showInTriggerMenu = false;
+      if (obj.styledLinks === undefined) obj.styledLinks = false;
+      if (!obj.previewFields) obj.previewFields = [];
     }
   }
 
   async saveSettings() { await this.saveData(this.settings); }
+
+  // ── Object link styling ───────────────────────────────────────────────────────
+
+  /**
+   * Rebuild the sets of file basenames / paths whose object type has
+   * `styledLinks` enabled.  Called on load, on metadata resolve, and whenever
+   * the styledLinks toggle changes.
+   */
+  buildStyledObjectSet() {
+    this.styledObjectBasenames  = new Set();
+    this.styledObjectPaths      = new Set();
+    this.previewObjectBasenames = new Set();
+    this.previewObjectPaths     = new Set();
+    for (const objType of this.settings.objectTypes) {
+      const hasPreview = (objType.previewFields ?? []).length > 0;
+      if (!objType.styledLinks && !hasPreview) continue;
+      for (const file of this.getObjectTypeFiles(objType)) {
+        if (objType.styledLinks) {
+          this.styledObjectBasenames.add(file.basename);
+          this.styledObjectPaths.add(file.path);
+        }
+        if (hasPreview) {
+          this.previewObjectBasenames.add(file.basename);
+          this.previewObjectPaths.add(file.path);
+        }
+      }
+    }
+  }
+
+  /**
+   * Walk any already-rendered internal links in the DOM (reading view) and
+   * add or remove the `ffc-obj-link` class to match the current object set.
+   * CM6 (live preview) picks up the new set automatically on the next update.
+   */
+  refreshObjectLinkStyles() {
+    document.querySelectorAll('a.internal-link[data-href]').forEach((link) => {
+      const href     = link.getAttribute('data-href').split('#')[0].trim();
+      const basename = href.includes('/') ? href.split('/').pop() : href;
+      const isObj    = this.styledObjectBasenames.has(href) || this.styledObjectBasenames.has(basename);
+      link.classList.toggle('ffc-obj-link', isObj);
+    });
+  }
+
+  /**
+   * Inject a persistent <style> block with CSS for object link pill styling.
+   * Uses the same CSS custom properties as Obsidian's tag pills so object
+   * links blend with the active theme automatically.
+   */
+  injectLinkStyles() {
+    const styleId = 'ffc-link-styles';
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      /* ── Object link pill — reading / preview mode ── */
+      .markdown-rendered a.internal-link.ffc-obj-link,
+      .markdown-preview-view a.internal-link.ffc-obj-link,
+      .markdown-reading-view a.internal-link.ffc-obj-link {
+        --link-decoration: none;
+        --link-decoration-hover: none;
+        text-decoration: none !important;
+        text-decoration-line: none !important;
+        background: var(--tag-background);
+        color: var(--tag-color) !important;
+        border-radius: 2px;
+        padding: 1px 5px;
+        border: var(--tag-border-width, 0px) solid var(--tag-border-color, transparent);
+        font-size: var(--tag-size, inherit);
+      }
+      .markdown-rendered a.internal-link.ffc-obj-link:hover,
+      .markdown-preview-view a.internal-link.ffc-obj-link:hover,
+      .markdown-reading-view a.internal-link.ffc-obj-link:hover {
+        --link-decoration: none;
+        --link-decoration-hover: none;
+        text-decoration: none !important;
+        text-decoration-line: none !important;
+        background: var(--tag-background-hover, var(--interactive-hover));
+        color: var(--tag-color-hover, var(--tag-color)) !important;
+        border-color: var(--tag-border-color-hover, var(--tag-border-color, transparent));
+      }
+
+      /* ── Object link pill — live preview / source mode (CM6 decoration) ── */
+      /* No padding here — padding on CM6 inline spans causes layout gaps when
+         Obsidian expands the [[...]] brackets on cursor entry. Use box-shadow
+         to extend the background fill without affecting the element's box. */
+      .cm-editor .ffc-obj-link {
+        background: var(--tag-background);
+        border-radius: 2px;
+        padding: 2px 0;
+        box-shadow: 4px 0 0 var(--tag-background), -4px 0 0 var(--tag-background);
+      }
+      /* Target the inner CM6 link spans directly — you can't cancel a child's
+         own text-decoration by setting none on an ancestor wrapper. */
+      .cm-editor .ffc-obj-link,
+      .cm-editor .ffc-obj-link .cm-hmd-internal-link,
+      .cm-editor .ffc-obj-link .cm-link,
+      .cm-editor .ffc-obj-link .cm-underline {
+        text-decoration: none !important;
+        text-decoration-line: none !important;
+        color: var(--tag-color) !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
 }
 
 module.exports = FilteredFileCommandsPlugin;
