@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS = {
   commands: [],
   objectTypes: [],
   templatesFolder: '',
+  triggerKey: '',
 };
 
 // ─── Filtered File Modal ──────────────────────────────────────────────────────
@@ -407,6 +408,21 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
     });
 
     new obsidian.Setting(containerEl)
+      .setName('Trigger key')
+      .setDesc('Character that opens the inline object picker while editing (e.g. "@"). Leave blank to disable. Changes take effect immediately.')
+      .addText((text) =>
+        text
+          .setPlaceholder('e.g. @')
+          .setValue(this.plugin.settings.triggerKey || '')
+          .onChange(async (value) => {
+            // Only allow a single character (or empty)
+            const trimmed = value.trim().slice(0, 1);
+            this.plugin.settings.triggerKey = trimmed;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new obsidian.Setting(containerEl)
       .setName('Templates folder')
       .setDesc('Path to your templates folder (e.g. "Templates"). Leave blank to auto-detect from the core Templates plugin.')
       .addText((text) =>
@@ -579,6 +595,84 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
         this.display();
       })
     );
+
+    // ── Trigger Menu Filters ──────────────────────────────────────────────────
+    const triggerSection = block.createDiv({ cls: 'ffc-filters-section' });
+    triggerSection.createEl('p', { text: 'Trigger Menu — Match Filters', cls: 'ffc-filters-title' });
+    triggerSection.createEl('p', {
+      text: 'Frontmatter filters that identify existing files of this type in the inline trigger menu. If no filters are set, files in the Save Folder are used instead.',
+      cls: 'ffc-hint',
+    });
+
+    new obsidian.Setting(triggerSection)
+      .setName('Filter match mode')
+      .setDesc('Should a file match ALL filters (AND) or at least ONE filter (OR)?')
+      .addDropdown((dd) =>
+        dd
+          .addOption('all', 'Match ALL (AND)')
+          .addOption('any', 'Match ANY (OR)')
+          .setValue(obj.matchMode ?? 'all')
+          .onChange(async (value) => { obj.matchMode = value; await this.plugin.saveSettings(); })
+      );
+
+    if (!obj.matchFilters || obj.matchFilters.length === 0) {
+      triggerSection.createEl('p', { text: 'No filters — save folder will be used as a fallback.', cls: 'ffc-hint' });
+    }
+    for (let fi = 0; fi < (obj.matchFilters ?? []).length; fi++) {
+      this.renderObjectMatchFilter(triggerSection, index, fi);
+    }
+    new obsidian.Setting(triggerSection).addButton((btn) =>
+      btn.setButtonText('＋ Add Match Filter').onClick(async () => {
+        if (!obj.matchFilters) obj.matchFilters = [];
+        obj.matchFilters.push({ key: '', operator: 'equals', value: '' });
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+  }
+
+  renderObjectMatchFilter(container, objIndex, filterIndex) {
+    const obj = this.plugin.settings.objectTypes[objIndex];
+    const filter = obj.matchFilters[filterIndex];
+    const row = container.createDiv({ cls: 'ffc-filter-row' });
+
+    const isPathOp = filter.operator === 'in_folder' || filter.operator === 'not_in_folder';
+
+    // Key input — hidden for path-based operators (path is the implicit "key")
+    if (!isPathOp) {
+      const keyInput = row.createEl('input', { cls: 'ffc-input ffc-input-key' });
+      keyInput.type = 'text'; keyInput.placeholder = 'Property key'; keyInput.value = filter.key ?? '';
+      keyInput.addEventListener('change', async () => { filter.key = keyInput.value.trim(); await this.plugin.saveSettings(); });
+    }
+
+    const opSelect = row.createEl('select', { cls: 'ffc-select' });
+    for (const op of [
+      { value: 'equals',       label: '=' },
+      { value: 'not_equals',   label: '≠' },
+      { value: 'contains',     label: 'contains' },
+      { value: 'exists',       label: 'exists' },
+      { value: 'in_folder',    label: 'in folder' },
+      { value: 'not_in_folder',label: 'not in folder' },
+    ]) {
+      const opt = opSelect.createEl('option', { text: op.label, value: op.value });
+      if (filter.operator === op.value) opt.selected = true;
+    }
+    opSelect.addEventListener('change', async () => { filter.operator = opSelect.value; await this.plugin.saveSettings(); this.display(); });
+
+    const needsValue = filter.operator !== 'exists';
+    if (needsValue) {
+      const valInput = row.createEl('input', { cls: 'ffc-input ffc-input-val' });
+      valInput.type = 'text';
+      valInput.placeholder = isPathOp ? 'Folder path (e.g. Templates)' : 'Value';
+      valInput.value = filter.value ?? '';
+      valInput.addEventListener('change', async () => { filter.value = valInput.value; await this.plugin.saveSettings(); });
+    }
+
+    row.createEl('button', { text: '✕', cls: 'ffc-btn-remove' }).onclick = async () => {
+      obj.matchFilters.splice(filterIndex, 1);
+      await this.plugin.saveSettings();
+      this.display();
+    };
   }
 
   renderObjectField(container, objIndex, fieldIndex) {
@@ -685,6 +779,124 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
   }
 }
 
+// ─── Object Type Inline Suggest ───────────────────────────────────────────────
+//
+// Watches the editor for the user-configured trigger key (e.g. "@") and opens
+// a fuzzy suggestion menu populated by all files that match any object type's
+// match filters. Selecting an item inserts a [[wikilink]] at the cursor.
+
+class ObjectTypeSuggest extends obsidian.EditorSuggest {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onTrigger(cursor, editor /*, file */) {
+    const triggerKey = this.plugin.settings.triggerKey;
+    if (!triggerKey) return null;
+
+    const line = editor.getLine(cursor.line);
+    const sub = line.substring(0, cursor.ch);
+
+    // Find the last occurrence of the trigger key on this line
+    const triggerIndex = sub.lastIndexOf(triggerKey);
+    if (triggerIndex === -1) return null;
+
+    // If there's already a space after the trigger key (but not right after it)
+    // that contains a space in the middle, the user has likely moved on — don't
+    // re-trigger. Allow spaces within the query for multi-word file names.
+    const query = sub.substring(triggerIndex + triggerKey.length);
+
+    // Don't fire inside an existing wikilink (after "[[")
+    const beforeTrigger = sub.substring(0, triggerIndex);
+    if (beforeTrigger.includes('[[') && !beforeTrigger.includes(']]')) return null;
+
+    return {
+      start: { line: cursor.line, ch: triggerIndex },
+      end: cursor,
+      query,
+    };
+  }
+
+  getSuggestions(context) {
+    const query = context.query.toLowerCase();
+    const files = this._getMatchingFiles();
+    return files
+      .map((file) => {
+        const cache = this.app.metadataCache.getFileCache(file);
+        const title = cache?.frontmatter?.title ? String(cache.frontmatter.title) : file.basename;
+        return { file, title };
+      })
+      .filter(({ title }) => title.toLowerCase().includes(query))
+      .sort((a, b) => {
+        // Prefer results that start with the query
+        const aStarts = a.title.toLowerCase().startsWith(query) ? 0 : 1;
+        const bStarts = b.title.toLowerCase().startsWith(query) ? 0 : 1;
+        return aStarts - bStarts || a.title.localeCompare(b.title);
+      })
+      .slice(0, 30);
+  }
+
+  /** Collect all files that match at least one object type's match filters. */
+  _getMatchingFiles() {
+    const plugin = this.plugin;
+    const allFiles = this.app.vault.getMarkdownFiles();
+    const seen = new Set();
+    const result = [];
+
+    for (const objType of plugin.settings.objectTypes) {
+      const filters = objType.matchFilters ?? [];
+      const matchMode = objType.matchMode ?? 'all';
+
+      for (const file of allFiles) {
+        if (seen.has(file.path)) continue;
+
+        let matches = false;
+
+        if (filters.length > 0) {
+          const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+          const results = filters.map((f) => plugin.evaluateFilter(fm, f, file));
+          matches = matchMode === 'all' ? results.every(Boolean) : results.some(Boolean);
+        } else if (objType.saveFolder?.trim()) {
+          // No filters defined: fall back to save-folder membership
+          const prefix = objType.saveFolder.trim().replace(/\/$/, '') + '/';
+          matches = file.path.startsWith(prefix);
+        }
+
+        if (matches) {
+          seen.add(file.path);
+          result.push(file);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  renderSuggestion({ file, title }, el) {
+    const wrapper = el.createDiv({ cls: 'ffc-suggestion' });
+    wrapper.createEl('span', { text: title, cls: 'ffc-suggestion-name' });
+    const folder = file.parent?.path;
+    if (folder && folder !== '/') {
+      wrapper.createEl('span', { text: folder, cls: 'ffc-suggestion-path' });
+    }
+  }
+
+  selectSuggestion({ file, title }, _evt) {
+    const context = this.context;
+    if (!context) return;
+
+    // Replace the trigger key + query with a wikilink.
+    // Use display text only when the title differs from the filename (e.g. a
+    // frontmatter title is set), so the link stays clean in the common case.
+    const link = title !== file.basename
+      ? `[[${file.basename}|${title}]]`
+      : `[[${file.basename}]]`;
+
+    context.editor.replaceRange(link, context.start, context.end);
+  }
+}
+
 // ─── Plugin ───────────────────────────────────────────────────────────────────
 
 class FilteredFileCommandsPlugin extends obsidian.Plugin {
@@ -698,6 +910,10 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
     for (const cmd of this.settings.commands) this.registerFilterCommand(cmd);
     for (const obj of this.settings.objectTypes) this.registerObjectTypeCommand(obj);
     this.registerNewObjectCommand();
+
+    // Register the inline trigger-key suggest
+    this.objectTypeSuggest = new ObjectTypeSuggest(this.app, this);
+    this.registerEditorSuggest(this.objectTypeSuggest);
   }
 
   // ── Filtered file commands ────────────────────────────────────────────────────
@@ -727,13 +943,22 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
     if (!cmd.filters || cmd.filters.length === 0) return allFiles;
     return allFiles.filter((file) => {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
-      const results = cmd.filters.map((f) => this.evaluateFilter(fm, f));
+      const results = cmd.filters.map((f) => this.evaluateFilter(fm, f, file));
       return cmd.matchMode === 'all' ? results.every(Boolean) : results.some(Boolean);
     });
   }
 
-  evaluateFilter(fm, filter) {
+  evaluateFilter(fm, filter, file) {
     const { key, operator, value } = filter;
+
+    // Path-based operators — work on the file path, not frontmatter
+    if (operator === 'in_folder' || operator === 'not_in_folder') {
+      if (!file) return true;
+      const folder = value.trim().replace(/\/$/, '');
+      const inFolder = file.path.startsWith(folder + '/') || file.path === folder;
+      return operator === 'in_folder' ? inFolder : !inFolder;
+    }
+
     if (!key?.trim()) return true;
     const raw = fm[key];
     switch (operator) {
@@ -943,9 +1168,12 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     if (!this.settings.objectTypes) this.settings.objectTypes = [];
     if (this.settings.templatesFolder === undefined) this.settings.templatesFolder = '';
-    // Ensure existing object types have the fields array
+    if (this.settings.triggerKey === undefined) this.settings.triggerKey = '';
+    // Ensure existing object types have the fields, matchFilters, and matchMode
     for (const obj of this.settings.objectTypes) {
       if (!obj.fields) obj.fields = [];
+      if (!obj.matchFilters) obj.matchFilters = [];
+      if (!obj.matchMode) obj.matchMode = 'all';
     }
   }
 
