@@ -5,6 +5,20 @@ const obsidian = require('obsidian');
 const { ViewPlugin, Decoration } = require('@codemirror/view');
 const { RangeSetBuilder } = require('@codemirror/state');
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Convert an object type name to a stable command slug.
+ * e.g. "My Task" → "my-task", "  Hello World! " → "hello-world"
+ */
+function nameToCommandSlug(name) {
+  return (name || 'object')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'object';
+}
+
 // ─── Default Settings ─────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS = {
@@ -442,7 +456,11 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
     new obsidian.Setting(containerEl).addButton((btn) =>
       btn.setButtonText('＋ Add Object Type').setCta().onClick(async () => {
         const id = `ffc-objtype-${Date.now()}`;
-        this.plugin.settings.objectTypes.push({ id, name: 'New Object', templatePath: '', saveFolder: '', fields: [], matchFilters: [], matchMode: 'all', enableFindCommand: false, showInTriggerMenu: false, previewFields: [] });
+        const takenSlugs = new Set(this.plugin.settings.objectTypes.map((o) => o.commandSlug).filter(Boolean));
+        const baseSlug = nameToCommandSlug('New Object');
+        let newSlug = baseSlug; let slugN = 2;
+        while (takenSlugs.has(newSlug)) newSlug = `${baseSlug}-${slugN++}`;
+        this.plugin.settings.objectTypes.push({ id, commandSlug: newSlug, name: 'New Object', templatePath: '', saveFolder: '', fields: [], matchFilters: [], matchMode: 'all', enableFindCommand: false, showInTriggerMenu: false, previewFields: [] });
         await this.plugin.saveSettings();
         this.plugin.registerObjectTypeCommand(this.plugin.settings.objectTypes[this.plugin.settings.objectTypes.length - 1]);
         this.display();
@@ -550,11 +568,18 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
         .onChange(async (value) => {
           obj.name = value;
           await this.plugin.saveSettings();
-          if (this.plugin.commandRefs?.[obj.id]) this.plugin.commandRefs[obj.id].name = `Create new ${value}`;
-          const findCmdId = `${obj.id}-find`;
+          const cmdId = `ffc-objtype-${obj.commandSlug}`;
+          if (this.plugin.commandRefs?.[cmdId]) this.plugin.commandRefs[cmdId].name = `Create new ${value}`;
+          const findCmdId = `${cmdId}-find`;
           if (this.plugin.commandRefs?.[findCmdId]) this.plugin.commandRefs[findCmdId].name = `Find ${value}`;
         })
       );
+    if (obj.commandSlug !== nameToCommandSlug(obj.name)) {
+      block.createEl('p', {
+        text: `⚠ Command ID ("${obj.commandSlug}") was set when this type was first created and no longer matches the current name. Renaming only updates the display — to fix it, change "commandSlug" in data.json to "${nameToCommandSlug(obj.name)}" and rebind any shortcuts.`,
+        cls: 'ffc-hint ffc-slug-warning',
+      });
+    }
 
     // ── Object Detection ──────────────────────────────────────────────────────
     const detectionSection = block.createDiv({ cls: 'ffc-filters-section' });
@@ -666,6 +691,27 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
         this.display();
       })
     );
+
+    // ── Preview Fields ────────────────────────────────────────────────────────
+    const previewSection = block.createDiv({ cls: 'ffc-filters-section' });
+    previewSection.createEl('p', { text: 'Preview Fields', cls: 'ffc-filters-title' });
+    previewSection.createEl('p', {
+      text: 'Frontmatter keys shown when hovering over a link to an object of this type. The title is always shown; these fields appear below it.',
+      cls: 'ffc-hint',
+    });
+
+    for (let fi = 0; fi < (obj.previewFields ?? []).length; fi++) {
+      this.renderPreviewField(previewSection, index, fi);
+    }
+
+    new obsidian.Setting(previewSection).addButton((btn) =>
+      btn.setButtonText('＋ Add Preview Field').onClick(async () => {
+        if (!obj.previewFields) obj.previewFields = [];
+        obj.previewFields.push({ key: '', label: '' });
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
   }
 
   renderObjectMatchFilter(container, objIndex, filterIndex) {
@@ -746,6 +792,45 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
     };
   }
 
+  renderPreviewField(container, objIndex, fieldIndex) {
+    const obj   = this.plugin.settings.objectTypes[objIndex];
+    const field = obj.previewFields[fieldIndex];
+    const row   = container.createDiv({ cls: 'ffc-filter-row' });
+
+    // Display label (optional — falls back to key if blank)
+    const labelInput = row.createEl('input', { cls: 'ffc-input ffc-input-label' });
+    labelInput.type        = 'text';
+    labelInput.placeholder = 'Display label';
+    labelInput.value       = field.label ?? '';
+    labelInput.title       = 'Label shown in the preview card (leave blank to use the key name)';
+    labelInput.addEventListener('change', async () => {
+      field.label = labelInput.value;
+      await this.plugin.saveSettings();
+    });
+
+    // Frontmatter key
+    const keyInput = row.createEl('input', { cls: 'ffc-input ffc-input-key' });
+    keyInput.type        = 'text';
+    keyInput.placeholder = 'Frontmatter key';
+    keyInput.value       = field.key ?? '';
+    keyInput.title       = 'The frontmatter property key whose value will appear in the preview';
+    keyInput.addEventListener('change', async () => {
+      field.key = keyInput.value.trim();
+      await this.plugin.saveSettings();
+      this.plugin.buildStyledObjectSet();
+      this.plugin.refreshObjectLinkStyles();
+    });
+
+    // Remove
+    row.createEl('button', { text: '✕', cls: 'ffc-btn-remove' }).onclick = async () => {
+      obj.previewFields.splice(fieldIndex, 1);
+      await this.plugin.saveSettings();
+      this.plugin.buildStyledObjectSet();
+      this.plugin.refreshObjectLinkStyles();
+      this.display();
+    };
+  }
+
   // ── Styles ───────────────────────────────────────────────────────────────────
 
   injectStyles() {
@@ -813,6 +898,173 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
       .ffc-suggestion-path { font-size: 0.78em; color: var(--text-muted); }
     `;
     document.head.appendChild(style);
+  }
+}
+
+// ─── Object Preview Popup ─────────────────────────────────────────────────────
+//
+// Shows a Linear-style hover card when the user hovers over an object link
+// (any link whose target matches an object type that has previewFields set).
+// Works in both reading mode (<a class="internal-link">) and live-preview
+// (CM6 decorated spans).
+
+class ObjectPreviewPopup {
+  constructor(plugin) {
+    this.plugin    = plugin;
+    this.popup     = null;
+    this.hideTimer = null;
+    this.showTimer = null;
+
+    this._onMouseOver = this._handleMouseOver.bind(this);
+    this._onMouseOut  = this._handleMouseOut.bind(this);
+    document.addEventListener('mouseover', this._onMouseOver, true);
+    document.addEventListener('mouseout',  this._onMouseOut,  true);
+  }
+
+  // ── Mouse event handlers ──────────────────────────────────────────────────────
+
+  _handleMouseOver(e) {
+    const el = e.target;
+    let linkpath = null;
+
+    // Reading mode: <a class="internal-link" data-href="filename">
+    const anchor = el.matches('a.internal-link[data-href]')
+      ? el
+      : el.closest('a.internal-link[data-href]');
+    if (anchor) {
+      linkpath = anchor.getAttribute('data-href').split('#')[0].trim();
+    }
+
+    // Live-preview mode: <span class="cm-hmd-internal-link">filename</span>
+    // No data-href — the text content IS the link target.
+    if (!linkpath) {
+      const cmSpan = el.classList.contains('cm-hmd-internal-link')
+        ? el
+        : el.closest('.cm-hmd-internal-link');
+      if (cmSpan) {
+        // Strip [[ ]] visible when cursor is on the raw wikilink; drop alias after |
+        linkpath = (cmSpan.textContent ?? '')
+          .replace(/^\[\[/, '').replace(/\]\]$/, '')
+          .split('|')[0].split('#')[0].trim();
+      }
+    }
+
+    if (!linkpath) return;
+
+    // Use Obsidian's resolver — handles short names, paths, and aliases
+    const file = this.plugin.app.metadataCache.getFirstLinkpathDest(linkpath, '');
+    if (!file) return;
+
+    const objType = this._getObjectTypeForFile(file);
+    if (!objType) return;
+
+    clearTimeout(this.hideTimer);
+    clearTimeout(this.showTimer);
+    this.showTimer = setTimeout(() => {
+      this._showForFile(file, objType, e.clientX, e.clientY);
+    }, 280);
+  }
+
+  _handleMouseOut(e) {
+    clearTimeout(this.showTimer);
+    // Keep popup alive if the mouse moves into the popup itself
+    const toEl = e.relatedTarget;
+    if (this.popup && this.popup.contains(toEl)) return;
+    this.hideTimer = setTimeout(() => this.hide(), 200);
+  }
+
+  // ── Build and position the popup ──────────────────────────────────────────────
+
+  async _showForFile(file, objType, clientX, clientY) {
+    if (!objType.previewFields?.length) return;
+
+    const app = this.plugin.app;
+
+    // Get frontmatter
+    const fm    = app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+    const title = fm.title ? String(fm.title) : file.basename;
+
+    // Tear down any existing popup
+    this.hide();
+
+    const popup = document.createElement('div');
+    popup.className = 'ffc-preview-popup';
+
+    // Title row
+    const header = popup.createDiv({ cls: 'ffc-preview-header' });
+    header.createEl('span', { text: title, cls: 'ffc-preview-title' });
+
+    popup.createEl('hr', { cls: 'ffc-preview-divider' });
+
+    // Frontmatter field rows
+    const body    = popup.createDiv({ cls: 'ffc-preview-body' });
+    let   hasRows = false;
+    for (const pf of objType.previewFields) {
+      const key   = typeof pf === 'string' ? pf : (pf.key ?? '');
+      const label = (typeof pf === 'string' ? pf : (pf.label || pf.key)) || key;
+      if (!key) continue;
+      const raw = fm[key];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const displayVal = Array.isArray(raw)
+        ? raw.map(String).join(', ')
+        : String(raw);
+
+      const row = body.createDiv({ cls: 'ffc-preview-row' });
+      row.createEl('span', { text: label, cls: 'ffc-preview-label' });
+      row.createEl('span', { text: displayVal, cls: 'ffc-preview-value' });
+      hasRows = true;
+    }
+
+    // Nothing to show below the title → still show title-only card
+    if (!hasRows) {
+      body.remove();
+      popup.querySelector('.ffc-preview-divider')?.remove();
+    }
+
+    document.body.appendChild(popup);
+    this.popup = popup;
+
+    // Keep popup alive while mouse is over it
+    popup.addEventListener('mouseenter', () => clearTimeout(this.hideTimer));
+    popup.addEventListener('mouseleave', () => {
+      this.hideTimer = setTimeout(() => this.hide(), 200);
+    });
+
+    // Smart positioning: prefer bottom-right of cursor, flip if near edges
+    const margin = 12;
+    const vw     = window.innerWidth;
+    const vh     = window.innerHeight;
+    const pw     = popup.offsetWidth  || 280;
+    const ph     = popup.offsetHeight || 120;
+    let   left   = clientX + margin;
+    let   top    = clientY + margin;
+    if (left + pw > vw - margin) left = clientX - pw - margin;
+    if (top  + ph > vh - margin) top  = clientY - ph - margin;
+    popup.style.left = `${Math.max(margin, left)}px`;
+    popup.style.top  = `${Math.max(margin, top)}px`;
+  }
+
+  _getObjectTypeForFile(file) {
+    for (const objType of this.plugin.settings.objectTypes) {
+      if (!(objType.previewFields?.length)) continue;
+      const files = this.plugin.getObjectTypeFiles(objType);
+      if (files.some((f) => f.path === file.path)) return objType;
+    }
+    return null;
+  }
+
+  // ── Public ────────────────────────────────────────────────────────────────────
+
+  hide() {
+    if (this.popup) { this.popup.remove(); this.popup = null; }
+  }
+
+  destroy() {
+    this.hide();
+    clearTimeout(this.hideTimer);
+    clearTimeout(this.showTimer);
+    document.removeEventListener('mouseover', this._onMouseOver, true);
+    document.removeEventListener('mouseout',  this._onMouseOut,  true);
   }
 }
 
@@ -992,6 +1244,10 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
     this.injectLinkStyles();
     this.register(() => document.getElementById('ffc-link-styles')?.remove());
 
+    // Hover preview popup
+    this.previewPopup = new ObjectPreviewPopup(this);
+    this.register(() => this.previewPopup.destroy());
+
     // Reading mode: mark rendered <a class="internal-link"> elements
     this.registerMarkdownPostProcessor((el) => {
       el.querySelectorAll('a.internal-link[data-href]').forEach((link) => {
@@ -999,6 +1255,9 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
         const basename = href.includes('/') ? href.split('/').pop() : href;
         if (this.styledObjectBasenames.has(href) || this.styledObjectBasenames.has(basename)) {
           link.classList.add('ffc-obj-link');
+        }
+        if (this.previewObjectBasenames.has(href) || this.previewObjectBasenames.has(basename)) {
+          link.classList.add('ffc-obj-preview-link');
         }
       });
     });
@@ -1090,9 +1349,10 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
   // ── Object type commands ──────────────────────────────────────────────────────
 
   registerObjectTypeCommand(obj) {
-    if (this.registeredCommandIds.has(obj.id)) return;
+    const cmdId = `ffc-objtype-${obj.commandSlug}`;
+    if (this.registeredCommandIds.has(cmdId)) return;
     const registered = this.addCommand({
-      id: obj.id,
+      id: cmdId,
       name: `Create new ${obj.name}`,
       callback: () => {
         const current = this.settings.objectTypes.find((o) => o.id === obj.id);
@@ -1100,12 +1360,12 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
         new NewObjectModal(this.app, current, (title, fieldValues) => this.createObject(current, title, fieldValues)).open();
       },
     });
-    this.commandRefs[obj.id] = registered;
-    this.registeredCommandIds.add(obj.id);
+    this.commandRefs[cmdId] = registered;
+    this.registeredCommandIds.add(cmdId);
   }
 
   registerFindCommand(obj) {
-    const cmdId = `${obj.id}-find`;
+    const cmdId = `ffc-objtype-${obj.commandSlug}-find`;
     if (this.registeredCommandIds.has(cmdId)) return;
     const registered = this.addCommand({
       id: cmdId,
@@ -1304,16 +1564,36 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
     if (!this.settings.objectTypes) this.settings.objectTypes = [];
     if (this.settings.templatesFolder === undefined) this.settings.templatesFolder = '';
     if (this.settings.triggerKey === undefined) this.settings.triggerKey = '';
-    // Ensure existing object types have the fields, matchFilters, and matchMode
+
+    // Build the set of slugs already assigned so we can guarantee uniqueness
+    const takenSlugs = new Set(
+      this.settings.objectTypes.filter((o) => o.commandSlug).map((o) => o.commandSlug)
+    );
+
+    let needsSave = false;
     for (const obj of this.settings.objectTypes) {
-      if (!obj.fields) obj.fields = [];
-      if (!obj.matchFilters) obj.matchFilters = [];
-      if (!obj.matchMode) obj.matchMode = 'all';
-      if (obj.enableFindCommand === undefined) obj.enableFindCommand = false;
-      if (obj.showInTriggerMenu === undefined) obj.showInTriggerMenu = false;
-      if (obj.styledLinks === undefined) obj.styledLinks = false;
-      if (!obj.previewFields) obj.previewFields = [];
+      if (!obj.fields)                          { obj.fields = [];        needsSave = true; }
+      if (!obj.matchFilters)                    { obj.matchFilters = [];  needsSave = true; }
+      if (!obj.matchMode)                       { obj.matchMode = 'all';  needsSave = true; }
+      if (obj.enableFindCommand === undefined)  { obj.enableFindCommand = false; needsSave = true; }
+      if (obj.showInTriggerMenu === undefined)  { obj.showInTriggerMenu = false; needsSave = true; }
+      if (obj.styledLinks === undefined)        { obj.styledLinks = false; needsSave = true; }
+      if (!obj.previewFields)                   { obj.previewFields = []; needsSave = true; }
+
+      // Assign a stable commandSlug the first time (derived from the name, unique).
+      // This slug never changes after creation — renames only update the display name.
+      if (!obj.commandSlug) {
+        const base = nameToCommandSlug(obj.name);
+        let slug = base;
+        let n = 2;
+        while (takenSlugs.has(slug)) slug = `${base}-${n++}`;
+        obj.commandSlug = slug;
+        takenSlugs.add(slug);
+        needsSave = true;
+      }
     }
+
+    if (needsSave) await this.saveSettings();
   }
 
   async saveSettings() { await this.saveData(this.settings); }
@@ -1353,10 +1633,12 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
    */
   refreshObjectLinkStyles() {
     document.querySelectorAll('a.internal-link[data-href]').forEach((link) => {
-      const href     = link.getAttribute('data-href').split('#')[0].trim();
-      const basename = href.includes('/') ? href.split('/').pop() : href;
-      const isObj    = this.styledObjectBasenames.has(href) || this.styledObjectBasenames.has(basename);
-      link.classList.toggle('ffc-obj-link', isObj);
+      const href      = link.getAttribute('data-href').split('#')[0].trim();
+      const basename  = href.includes('/') ? href.split('/').pop() : href;
+      const isStyled  = this.styledObjectBasenames.has(href)  || this.styledObjectBasenames.has(basename);
+      const isPreview = this.previewObjectBasenames.has(href)  || this.previewObjectBasenames.has(basename);
+      link.classList.toggle('ffc-obj-link',         isStyled);
+      link.classList.toggle('ffc-obj-preview-link', isPreview);
     });
   }
 
@@ -1396,6 +1678,49 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
         background: var(--tag-background-hover, var(--interactive-hover));
         color: var(--tag-color-hover, var(--tag-color)) !important;
         border-color: var(--tag-border-color-hover, var(--tag-border-color, transparent));
+      }
+
+      /* ── Object preview popup ── */
+      .ffc-preview-popup {
+        position: fixed;
+        z-index: 9999;
+        background: var(--background-primary);
+        border: 1px solid var(--background-modifier-border);
+        border-radius: 8px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.13), 0 1px 4px rgba(0,0,0,0.08);
+        padding: 14px 16px 12px;
+        min-width: 220px;
+        max-width: 360px;
+        pointer-events: auto;
+        font-size: var(--font-ui-small, 13px);
+        line-height: 1.5;
+      }
+      .ffc-preview-header { margin-bottom: 10px; }
+      .ffc-preview-title {
+        display: block;
+        font-weight: 600;
+        font-size: 0.95em;
+        color: var(--text-normal);
+        line-height: 1.4;
+        word-break: break-word;
+      }
+      .ffc-preview-divider {
+        border: none;
+        border-top: 1px solid var(--background-modifier-border);
+        margin: 0 0 10px;
+      }
+      .ffc-preview-body { display: flex; flex-direction: column; gap: 5px; }
+      .ffc-preview-row  { display: flex; align-items: baseline; gap: 10px; font-size: 0.88em; }
+      .ffc-preview-label {
+        color: var(--text-muted);
+        min-width: 64px;
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      .ffc-preview-value {
+        color: var(--text-normal);
+        flex: 1;
+        word-break: break-word;
       }
 
       /* ── Object link pill — live preview / source mode (CM6 decoration) ── */
