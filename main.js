@@ -31,10 +31,10 @@ const DEFAULT_SETTINGS = {
 // ─── Filtered File Modal ──────────────────────────────────────────────────────
 
 class FilteredFileModal extends obsidian.FuzzySuggestModal {
-  constructor(app, files) {
+  constructor(app, files, typeName) {
     super(app);
     this.files = files;
-    this.setPlaceholder('Type to search filtered files…');
+    this.setPlaceholder(typeName ? `Search ${typeName}…` : 'Type to search filtered files…');
     this.setInstructions([
       { command: '↑↓', purpose: 'navigate' },
       { command: '↵', purpose: 'open' },
@@ -1805,7 +1805,7 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
         if (!current) { new obsidian.Notice('Objects: Object type not found. Try reloading.'); return; }
         const files = this.getObjectTypeFiles(current);
         if (files.length === 0) { new obsidian.Notice('Objects: No files match this object type.'); return; }
-        new FilteredFileModal(this.app, files).open();
+        new FilteredFileModal(this.app, files, current.name).open();
       },
     });
     this.commandRefs[cmdId] = registered;
