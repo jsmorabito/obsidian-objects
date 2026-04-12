@@ -380,6 +380,342 @@ class CombinedNewObjectModal extends obsidian.Modal {
   onClose() { this.contentEl.empty(); }
 }
 
+// ─── Object Type Settings Modal ───────────────────────────────────────────────
+//
+// Opens when the user clicks the gear icon next to an object type.
+// Renders all the per-type settings (name, detection filters, template, fields,
+// preview fields, etc.) inside a modal so the main settings page stays clean.
+
+class ObjectTypeSettingsModal extends obsidian.Modal {
+  constructor(app, plugin, index, onDismiss) {
+    super(app);
+    this.plugin    = plugin;
+    this.index     = index;
+    this.onDismiss = onDismiss;
+  }
+
+  onOpen() {
+    this._render();
+  }
+
+  _render() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass('ffc-objtype-modal');
+
+    const obj = this.plugin.settings.objectTypes[this.index];
+    if (!obj) { contentEl.createEl('p', { text: 'Object type not found.' }); return; }
+
+    contentEl.createEl('h2', { text: obj.name || 'Object Type Settings', cls: 'ffc-modal-title' });
+
+    // ── Name ────────────────────────────────────────────────────────────────
+    new obsidian.Setting(contentEl).setName('Object name').setDesc('Creates a "Create new {name}" command in the palette.')
+      .addText((text) => text.setPlaceholder('e.g. Task').setValue(obj.name)
+        .onChange(async (value) => {
+          obj.name = value;
+          await this.plugin.saveSettings();
+          const cmdId = `ffc-objtype-${obj.commandSlug}`;
+          if (this.plugin.commandRefs?.[cmdId]) this.plugin.commandRefs[cmdId].name = `Create new ${value}`;
+          const findCmdId = `${cmdId}-find`;
+          if (this.plugin.commandRefs?.[findCmdId]) this.plugin.commandRefs[findCmdId].name = `Find ${value}`;
+          // Update modal title live
+          const titleEl = contentEl.querySelector('.ffc-modal-title');
+          if (titleEl) titleEl.textContent = value || 'Object Type Settings';
+        })
+      );
+
+    // ── Description ──────────────────────────────────────────────────────────
+    new obsidian.Setting(contentEl).setName('Description').setDesc('Short description shown beneath the object type name in the settings list.')
+      .addText((text) => text.setPlaceholder('e.g. Tracks actionable to-dos').setValue(obj.description || '')
+        .onChange(async (value) => {
+          obj.description = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    if (obj.commandSlug !== nameToCommandSlug(obj.name)) {
+      contentEl.createEl('p', {
+        text: `⚠ Command ID ("${obj.commandSlug}") was set when this type was first created and no longer matches the current name. Renaming only updates the display — to fix it, change "commandSlug" in data.json to "${nameToCommandSlug(obj.name)}" and rebind any shortcuts.`,
+        cls: 'ffc-hint ffc-slug-warning',
+      });
+    }
+
+    // ── Object Detection ─────────────────────────────────────────────────────
+    const detectionSection = contentEl.createDiv({ cls: 'ffc-filters-section' });
+    detectionSection.createEl('p', { text: 'Object Detection', cls: 'ffc-filters-title' });
+    detectionSection.createEl('p', {
+      text: 'Filters that identify existing files of this type. Used by the trigger menu and the "Find" command. If no filters are set, files in the Save Folder are used as a fallback.',
+      cls: 'ffc-hint',
+    });
+
+    new obsidian.Setting(detectionSection)
+      .setName('Filter match mode')
+      .setDesc('Should a file match ALL filters (AND) or at least ONE filter (OR)?')
+      .addDropdown((dd) =>
+        dd.addOption('all', 'Match ALL (AND)').addOption('any', 'Match ANY (OR)')
+          .setValue(obj.matchMode ?? 'all')
+          .onChange(async (value) => { obj.matchMode = value; await this.plugin.saveSettings(); })
+      );
+
+    if (!obj.matchFilters || obj.matchFilters.length === 0) {
+      detectionSection.createEl('p', { text: 'No filters — save folder will be used as a fallback.', cls: 'ffc-hint' });
+    }
+    for (let fi = 0; fi < (obj.matchFilters ?? []).length; fi++) {
+      this._renderObjectMatchFilter(detectionSection, fi);
+    }
+    new obsidian.Setting(detectionSection).addButton((btn) =>
+      btn.setButtonText('＋ Add Detection Filter').onClick(async () => {
+        if (!obj.matchFilters) obj.matchFilters = [];
+        obj.matchFilters.push({ key: '', operator: 'equals', value: '' });
+        await this.plugin.saveSettings();
+        this._render();
+      })
+    );
+
+    new obsidian.Setting(detectionSection)
+      .setName('Show in trigger menu')
+      .setDesc(`When enabled, matching files appear in the "${this.plugin.settings.triggerKey || '@'}" inline trigger menu.`)
+      .addToggle((toggle) =>
+        toggle.setValue(obj.showInTriggerMenu ?? false)
+          .onChange(async (value) => { obj.showInTriggerMenu = value; await this.plugin.saveSettings(); })
+      );
+
+    new obsidian.Setting(detectionSection)
+      .setName('Enable "Find" command')
+      .setDesc(`When enabled, adds a "Find ${obj.name}" command to the palette for fuzzy-searching files of this type.`)
+      .addToggle((toggle) =>
+        toggle.setValue(obj.enableFindCommand ?? false)
+          .onChange(async (value) => {
+            obj.enableFindCommand = value;
+            await this.plugin.saveSettings();
+            if (value) this.plugin.registerFindCommand(obj);
+          })
+      );
+
+    new obsidian.Setting(detectionSection)
+      .setName('Style object links')
+      .setDesc('When enabled, inline links to files of this type will have their underline removed and a background fill applied (using tag style variables).')
+      .addToggle((toggle) =>
+        toggle.setValue(obj.styledLinks ?? false)
+          .onChange(async (value) => {
+            obj.styledLinks = value;
+            await this.plugin.saveSettings();
+            this.plugin.buildStyledObjectSet();
+            this.plugin.refreshObjectLinkStyles();
+          })
+      );
+
+    // ── Template & Save Folder ───────────────────────────────────────────────
+    const templateFiles = this.plugin.getTemplateFiles();
+    if (templateFiles.length > 0) {
+      new obsidian.Setting(contentEl).setName('Template').setDesc('Template file applied when creating a new object of this type.')
+        .addDropdown((dd) => {
+          dd.addOption('', '— None —');
+          for (const f of templateFiles) dd.addOption(f.path, f.basename);
+          dd.setValue(obj.templatePath || '');
+          dd.onChange(async (value) => { obj.templatePath = value; await this.plugin.saveSettings(); });
+        });
+    } else {
+      new obsidian.Setting(contentEl).setName('Template').setDesc('No templates found. Set the templates folder in General settings, or check it contains .md files.')
+        .addText((text) => text.setPlaceholder('path/to/template.md').setValue(obj.templatePath || '')
+          .onChange(async (value) => { obj.templatePath = value.trim(); await this.plugin.saveSettings(); })
+        );
+    }
+
+    new obsidian.Setting(contentEl).setName('Save folder').setDesc('Where new files are created (e.g. "Projects/Tasks"). Leave blank for vault root.')
+      .addText((text) => text.setPlaceholder('e.g. Projects/Tasks').setValue(obj.saveFolder || '')
+        .onChange(async (value) => { obj.saveFolder = value.trim(); await this.plugin.saveSettings(); })
+      );
+
+    // ── Creation Fields ──────────────────────────────────────────────────────
+    const fieldsSection = contentEl.createDiv({ cls: 'ffc-filters-section' });
+    fieldsSection.createEl('p', { text: 'Creation Fields', cls: 'ffc-filters-title' });
+    fieldsSection.createEl('p', {
+      text: 'Fields shown in the creation dialog. Values are written into the new file\'s frontmatter.',
+      cls: 'ffc-hint',
+    });
+
+    for (let fi = 0; fi < (obj.fields ?? []).length; fi++) {
+      this._renderObjectField(fieldsSection, fi);
+    }
+    new obsidian.Setting(fieldsSection).addButton((btn) =>
+      btn.setButtonText('＋ Add Field').onClick(async () => {
+        if (!obj.fields) obj.fields = [];
+        obj.fields.push({ key: '', label: '', type: 'text' });
+        await this.plugin.saveSettings();
+        this._render();
+      })
+    );
+
+    // ── Preview Fields ───────────────────────────────────────────────────────
+    const previewSection = contentEl.createDiv({ cls: 'ffc-filters-section' });
+    previewSection.createEl('p', { text: 'Preview Fields', cls: 'ffc-filters-title' });
+    previewSection.createEl('p', {
+      text: 'Frontmatter keys shown when hovering over a link to an object of this type. The title is always shown; these fields appear below it.',
+      cls: 'ffc-hint',
+    });
+
+    for (let fi = 0; fi < (obj.previewFields ?? []).length; fi++) {
+      this._renderPreviewField(previewSection, fi);
+    }
+    new obsidian.Setting(previewSection).addButton((btn) =>
+      btn.setButtonText('＋ Add Preview Field').onClick(async () => {
+        if (!obj.previewFields) obj.previewFields = [];
+        obj.previewFields.push({ key: '', label: '' });
+        await this.plugin.saveSettings();
+        this._render();
+      })
+    );
+  }
+
+  _renderObjectMatchFilter(container, filterIndex) {
+    const obj    = this.plugin.settings.objectTypes[this.index];
+    const filter = obj.matchFilters[filterIndex];
+    const row    = container.createDiv({ cls: 'ffc-filter-row' });
+
+    const isPathOp = filter.operator === 'in_folder' || filter.operator === 'not_in_folder';
+
+    if (!isPathOp) {
+      const keyInput = row.createEl('input', { cls: 'ffc-input ffc-input-key' });
+      keyInput.type = 'text'; keyInput.placeholder = 'Property key'; keyInput.value = filter.key ?? '';
+      keyInput.addEventListener('change', async () => { filter.key = keyInput.value.trim(); await this.plugin.saveSettings(); });
+    }
+
+    const opSelect = row.createEl('select', { cls: 'ffc-select' });
+    for (const op of [
+      { value: 'equals',        label: '=' },
+      { value: 'not_equals',    label: '≠' },
+      { value: 'contains',      label: 'contains' },
+      { value: 'exists',        label: 'exists' },
+      { value: 'in_folder',     label: 'in folder' },
+      { value: 'not_in_folder', label: 'not in folder' },
+    ]) {
+      const opt = opSelect.createEl('option', { text: op.label, value: op.value });
+      if (filter.operator === op.value) opt.selected = true;
+    }
+    opSelect.addEventListener('change', async () => { filter.operator = opSelect.value; await this.plugin.saveSettings(); this._render(); });
+
+    if (filter.operator !== 'exists') {
+      const valInput = row.createEl('input', { cls: 'ffc-input ffc-input-val' });
+      valInput.type = 'text';
+      valInput.placeholder = isPathOp ? 'Folder path (e.g. Templates)' : 'Value';
+      valInput.value = filter.value ?? '';
+      valInput.addEventListener('change', async () => { filter.value = valInput.value; await this.plugin.saveSettings(); });
+    }
+
+    row.createEl('button', { text: '✕', cls: 'ffc-btn-remove' }).onclick = async () => {
+      obj.matchFilters.splice(filterIndex, 1);
+      await this.plugin.saveSettings();
+      this._render();
+    };
+  }
+
+  _renderObjectField(container, fieldIndex) {
+    const obj   = this.plugin.settings.objectTypes[this.index];
+    const field = obj.fields[fieldIndex];
+    const row   = container.createDiv({ cls: 'ffc-filter-row' });
+
+    const labelInput = row.createEl('input', { cls: 'ffc-input ffc-input-label' });
+    labelInput.type = 'text'; labelInput.placeholder = 'Label'; labelInput.value = field.label ?? '';
+    labelInput.title = 'Display label shown in the creation dialog';
+    labelInput.addEventListener('change', async () => { field.label = labelInput.value; await this.plugin.saveSettings(); });
+
+    const keyInput = row.createEl('input', { cls: 'ffc-input ffc-input-key' });
+    keyInput.type = 'text'; keyInput.placeholder = 'Frontmatter key'; keyInput.value = field.key ?? '';
+    keyInput.title = 'The frontmatter property key written into the new file';
+    keyInput.addEventListener('change', async () => { field.key = keyInput.value.trim(); await this.plugin.saveSettings(); });
+
+    const typeSelect = row.createEl('select', { cls: 'ffc-select' });
+    for (const t of [{ value: 'text', label: 'Text' }, { value: 'list', label: 'List' }]) {
+      const opt = typeSelect.createEl('option', { text: t.label, value: t.value });
+      if (field.type === t.value) opt.selected = true;
+    }
+    typeSelect.title = 'List splits comma-separated input into a YAML array';
+    typeSelect.addEventListener('change', async () => { field.type = typeSelect.value; await this.plugin.saveSettings(); });
+
+    row.createEl('button', { text: '✕', cls: 'ffc-btn-remove' }).onclick = async () => {
+      obj.fields.splice(fieldIndex, 1);
+      await this.plugin.saveSettings();
+      this._render();
+    };
+  }
+
+  _renderPreviewField(container, fieldIndex) {
+    const obj   = this.plugin.settings.objectTypes[this.index];
+    const field = obj.previewFields[fieldIndex];
+    const row   = container.createDiv({ cls: 'ffc-filter-row' });
+
+    const labelInput = row.createEl('input', { cls: 'ffc-input ffc-input-label' });
+    labelInput.type = 'text'; labelInput.placeholder = 'Display label'; labelInput.value = field.label ?? '';
+    labelInput.title = 'Label shown in the preview card (leave blank to use the key name)';
+    labelInput.addEventListener('change', async () => { field.label = labelInput.value; await this.plugin.saveSettings(); });
+
+    const keyInput = row.createEl('input', { cls: 'ffc-input ffc-input-key' });
+    keyInput.type = 'text'; keyInput.placeholder = 'Frontmatter key'; keyInput.value = field.key ?? '';
+    keyInput.title = 'The frontmatter property key whose value will appear in the preview';
+    keyInput.addEventListener('change', async () => {
+      field.key = keyInput.value.trim();
+      await this.plugin.saveSettings();
+      this.plugin.buildStyledObjectSet();
+      this.plugin.refreshObjectLinkStyles();
+    });
+
+    row.createEl('button', { text: '✕', cls: 'ffc-btn-remove' }).onclick = async () => {
+      obj.previewFields.splice(fieldIndex, 1);
+      await this.plugin.saveSettings();
+      this.plugin.buildStyledObjectSet();
+      this.plugin.refreshObjectLinkStyles();
+      this._render();
+    };
+  }
+
+  onClose() {
+    this.contentEl.empty();
+    if (this.onDismiss) this.onDismiss();
+  }
+}
+
+// ─── Object Type Delete Confirmation Modal ────────────────────────────────────
+
+class ObjectTypeDeleteModal extends obsidian.Modal {
+  constructor(app, plugin, index, onDismiss) {
+    super(app);
+    this.plugin    = plugin;
+    this.index     = index;
+    this.onDismiss = onDismiss;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass('ffc-confirm-modal');
+    const obj = this.plugin.settings.objectTypes[this.index];
+
+    contentEl.createEl('h2', { text: 'Delete Object Type?' });
+    contentEl.createEl('p', {
+      text: `Are you sure you want to delete "${obj?.name || 'this object type'}"? This will remove it from your settings. Existing files will not be affected.`,
+      cls: 'ffc-confirm-desc',
+    });
+
+    const btnRow = contentEl.createDiv({ cls: 'ffc-confirm-buttons' });
+
+    btnRow.createEl('button', { text: 'Cancel', cls: 'ffc-btn-cancel' }).onclick = () => {
+      this.close();
+    };
+
+    const deleteBtn = btnRow.createEl('button', { text: 'Delete', cls: 'ffc-btn-danger' });
+    deleteBtn.onclick = async () => {
+      this.plugin.settings.objectTypes.splice(this.index, 1);
+      await this.plugin.saveSettings();
+      this.close();
+    };
+  }
+
+  onClose() {
+    this.contentEl.empty();
+    if (this.onDismiss) this.onDismiss();
+  }
+}
+
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
 
 class MyPluginSettingTab extends obsidian.PluginSettingTab {
@@ -416,8 +752,8 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
 
     containerEl.createEl('hr', { cls: 'ffc-divider' });
 
-    // ── Object Types ──────────────────────────────────────────────────────────
-    containerEl.createEl('h2', { text: 'Object Types' });
+    // ── General ───────────────────────────────────────────────────────────────
+    containerEl.createEl('h2', { text: 'General' });
     containerEl.createEl('p', {
       text: 'Define object types to get "Create new …" commands in the palette. Optionally define fields that will be prompted at creation time and written into the new file\'s frontmatter.',
       cls: 'ffc-settings-desc',
@@ -449,23 +785,33 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
           })
       );
 
-    for (let i = 0; i < this.plugin.settings.objectTypes.length; i++) {
-      this.renderObjectType(containerEl, i);
-    }
+    containerEl.createEl('hr', { cls: 'ffc-divider' });
 
-    new obsidian.Setting(containerEl).addButton((btn) =>
-      btn.setButtonText('＋ Add Object Type').setCta().onClick(async () => {
-        const id = `ffc-objtype-${Date.now()}`;
-        const takenSlugs = new Set(this.plugin.settings.objectTypes.map((o) => o.commandSlug).filter(Boolean));
-        const baseSlug = nameToCommandSlug('New Object');
-        let newSlug = baseSlug; let slugN = 2;
-        while (takenSlugs.has(newSlug)) newSlug = `${baseSlug}-${slugN++}`;
-        this.plugin.settings.objectTypes.push({ id, commandSlug: newSlug, name: 'New Object', templatePath: '', saveFolder: '', fields: [], matchFilters: [], matchMode: 'all', enableFindCommand: false, showInTriggerMenu: false, previewFields: [] });
-        await this.plugin.saveSettings();
-        this.plugin.registerObjectTypeCommand(this.plugin.settings.objectTypes[this.plugin.settings.objectTypes.length - 1]);
-        this.display();
-      })
-    );
+    // ── Object Types ──────────────────────────────────────────────────────────
+    const objTypesHeader = containerEl.createDiv({ cls: 'ffc-section-header' });
+    objTypesHeader.createEl('h2', { text: 'Object Types', cls: 'ffc-section-header-title' });
+    const addObjTypeBtn = objTypesHeader.createEl('button', { cls: 'clickable-icon ffc-btn-add', title: 'Add object type', attr: { 'aria-label': 'Add object type' } });
+    obsidian.setIcon(addObjTypeBtn, 'plus');
+    addObjTypeBtn.onclick = async () => {
+      const id = `ffc-objtype-${Date.now()}`;
+      const takenSlugs = new Set(this.plugin.settings.objectTypes.map((o) => o.commandSlug).filter(Boolean));
+      const baseSlug = nameToCommandSlug('New Object');
+      let newSlug = baseSlug; let slugN = 2;
+      while (takenSlugs.has(newSlug)) newSlug = `${baseSlug}-${slugN++}`;
+      this.plugin.settings.objectTypes.push({ id, commandSlug: newSlug, name: 'New Object', templatePath: '', saveFolder: '', fields: [], matchFilters: [], matchMode: 'all', enableFindCommand: false, showInTriggerMenu: false, previewFields: [] });
+      await this.plugin.saveSettings();
+      this.plugin.registerObjectTypeCommand(this.plugin.settings.objectTypes[this.plugin.settings.objectTypes.length - 1]);
+      this.display();
+    };
+
+    const objTypesList = containerEl.createDiv({ cls: 'setting-group ffc-objtype-list' });
+    if (this.plugin.settings.objectTypes.length === 0) {
+      objTypesList.createEl('p', { text: 'No object types yet. Click + to add one.', cls: 'ffc-hint ffc-objtype-empty' });
+    } else {
+      for (let i = 0; i < this.plugin.settings.objectTypes.length; i++) {
+        this.renderObjectTypeRow(objTypesList, i);
+      }
+    }
 
     this.injectStyles();
   }
@@ -545,6 +891,43 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
       cmd.filters.splice(filterIndex, 1);
       await this.plugin.saveSettings();
       this.display();
+    };
+  }
+
+  // ── Object type compact row (list view) ──────────────────────────────────────
+
+  renderObjectTypeRow(containerEl, index) {
+    const obj = this.plugin.settings.objectTypes[index];
+    const row = containerEl.createDiv({ cls: 'ffc-objtype-row' });
+    row.onclick = (e) => {
+      // Only open modal if the click wasn't on an action button
+      if (!e.target.closest('.ffc-objtype-row-actions')) {
+        new ObjectTypeSettingsModal(this.app, this.plugin, index, () => this.display()).open();
+      }
+    };
+
+    // Left: name + subtitle
+    const info = row.createDiv({ cls: 'ffc-objtype-row-info' });
+    info.createEl('div', { text: obj.name || 'Unnamed', cls: 'ffc-objtype-row-name' });
+    if (obj.description) {
+      info.createEl('div', { text: obj.description, cls: 'ffc-objtype-row-desc' });
+    }
+
+    // Right: action buttons
+    const actions = row.createDiv({ cls: 'ffc-objtype-row-actions' });
+
+    // Gear icon — opens settings modal
+    const gearBtn = actions.createEl('button', { cls: 'clickable-icon', attr: { 'aria-label': 'Edit settings' } });
+    obsidian.setIcon(gearBtn, 'settings');
+    gearBtn.onclick = () => {
+      new ObjectTypeSettingsModal(this.app, this.plugin, index, () => this.display()).open();
+    };
+
+    // Trash icon — delete with confirmation
+    const trashBtn = actions.createEl('button', { cls: 'clickable-icon ffc-btn-icon-danger', attr: { 'aria-label': 'Delete object type' } });
+    obsidian.setIcon(trashBtn, 'trash-2');
+    trashBtn.onclick = () => {
+      new ObjectTypeDeleteModal(this.app, this.plugin, index, () => this.display()).open();
     };
   }
 
@@ -835,9 +1218,12 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
 
   injectStyles() {
     const styleId = 'ffc-inline-styles';
-    if (document.getElementById(styleId)) return;
-    const style = document.createElement('style');
-    style.id = styleId;
+    let style = document.getElementById(styleId);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = styleId;
+      document.head.appendChild(style);
+    }
     style.textContent = `
       .ffc-settings-desc { color: var(--text-muted); margin-bottom: 1.5em; line-height: 1.5; }
       .ffc-divider { border: none; border-top: 1px solid var(--background-modifier-border); margin: 2em 0; }
@@ -888,6 +1274,51 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
       }
       .ffc-btn-remove:hover { color: var(--color-red); border-color: var(--color-red); }
 
+      /* Section header with + button */
+      .ffc-section-header {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 0.5em;
+      }
+      .ffc-section-header-title { margin: 0; }
+
+      /* Danger variant for trash icon */
+      .ffc-btn-icon-danger:hover { color: var(--color-red) !important; }
+
+      /* Object types list — uses Obsidian's setting-group card + plugin-list row pattern */
+      .ffc-objtype-list {
+        background: var(--setting-items-background);
+        border-radius: var(--radius-m);
+        padding: 0 18px;
+        margin-bottom: 16px;
+      }
+      .ffc-objtype-empty { color: var(--text-muted); font-style: italic; font-size: 0.9em; padding: 4px 0; }
+      .ffc-objtype-row {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 0; cursor: pointer;
+      }
+      .ffc-objtype-row + .ffc-objtype-row { border-top: 1px solid var(--background-modifier-border); }
+      .ffc-objtype-row-info { flex: 1; min-width: 0; }
+      .ffc-objtype-row-name {
+        font-size: var(--font-ui-medium); font-weight: var(--font-semibold);
+        color: var(--text-normal); margin-bottom: 2px;
+      }
+      .ffc-objtype-row-desc { font-size: var(--font-ui-small); color: var(--text-muted); }
+      .ffc-objtype-row-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; margin-left: 12px; }
+
+      /* Object type settings modal */
+      .ffc-objtype-modal { padding: 4px 8px 16px; max-width: 640px; }
+      .ffc-modal-title { margin-bottom: 16px; }
+
+      /* Delete confirmation modal */
+      .ffc-confirm-modal { padding: 8px; }
+      .ffc-confirm-desc { color: var(--text-muted); margin: 12px 0 24px; line-height: 1.5; }
+      .ffc-confirm-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+      .ffc-btn-cancel {
+        background: var(--interactive-normal); border: 1px solid var(--background-modifier-border);
+        border-radius: 4px; color: var(--text-normal); cursor: pointer; padding: 6px 14px; font-size: 0.9em;
+      }
+      .ffc-btn-cancel:hover { background: var(--interactive-hover); }
+
       /* New object modal */
       .ffc-new-object-modal { padding: 8px; }
       .ffc-new-object-modal h2 { margin-bottom: 16px; }
@@ -897,7 +1328,6 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
       .ffc-suggestion-name { font-size: 0.95em; color: var(--text-normal); }
       .ffc-suggestion-path { font-size: 0.78em; color: var(--text-muted); }
     `;
-    document.head.appendChild(style);
   }
 }
 
