@@ -1,0 +1,410 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Objects Plugin — styles.css
+   Uses Obsidian CSS variables throughout so all values respond to themes.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ── Settings UI ─────────────────────────────────────────────────────────── */
+
+.ffc-settings-desc {
+  color: var(--text-muted);
+  margin-bottom: 1.5em;
+  line-height: 1.5;
+}
+
+.ffc-divider {
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+  margin: 2em 0;
+}
+
+.ffc-command-block {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 16px;
+  margin-bottom: 20px;
+  background: var(--background-secondary);
+}
+
+.ffc-command-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.ffc-command-label {
+  font-weight: 600;
+  font-size: 1em;
+  color: var(--text-accent);
+}
+
+.ffc-objtype-label { color: var(--color-green); }
+
+.ffc-filters-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ffc-filters-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ffc-hint {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.85em;
+  margin-bottom: 8px;
+}
+
+.ffc-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+
+/* ── Inline filter inputs & selects ─────────────────────────────────────── */
+/* These live in compact row layouts where Setting.addText() doesn't fit,
+   so we style raw <input> / <select> elements using Obsidian's variables. */
+
+.ffc-input {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 5px 8px;
+  color: var(--text-normal);
+  font-size: 0.9em;
+  outline: none;
+}
+
+.ffc-input:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.ffc-input-key   { width: 140px; }
+.ffc-input-val   { width: 150px; }
+.ffc-input-label { width: 110px; }
+
+.ffc-select {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 5px 6px;
+  color: var(--text-normal);
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+.ffc-btn-remove {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.85em;
+  line-height: 1;
+  transition: color 0.1s, border-color 0.1s;
+}
+
+.ffc-btn-remove:hover {
+  color: var(--color-red);
+  border-color: var(--color-red);
+}
+
+
+/* ── Section header with + button ───────────────────────────────────────── */
+
+.ffc-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5em;
+}
+
+.ffc-section-header-title { margin: 0; }
+
+/* Danger tint for clickable-icon trash buttons */
+.ffc-btn-icon-danger:hover { color: var(--color-red) !important; }
+
+
+/* ── Object types list ──────────────────────────────────────────────────── */
+/* Mirrors Obsidian's installed-plugins card + row pattern. */
+
+.ffc-objtype-list {
+  background: var(--setting-items-background);
+  border-radius: var(--radius-m);
+  padding: 0 18px;
+  margin-bottom: 16px;
+}
+
+.ffc-objtype-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.9em;
+  padding: 4px 0;
+}
+
+.ffc-objtype-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+.ffc-objtype-row + .ffc-objtype-row {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ffc-objtype-row-info { flex: 1; min-width: 0; }
+
+.ffc-objtype-row-name {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+  margin-bottom: 2px;
+}
+
+.ffc-objtype-row-desc {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.ffc-objtype-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+
+/* ── Modals ─────────────────────────────────────────────────────────────── */
+
+.ffc-objtype-modal { padding: 4px 8px 16px; max-width: 640px; }
+.ffc-modal-title   { margin-bottom: 16px; }
+
+.ffc-confirm-modal { padding: 8px; }
+.ffc-confirm-desc  { color: var(--text-muted); margin: 12px 0 24px; line-height: 1.5; }
+
+.ffc-confirm-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Secondary/cancel button — Obsidian has no built-in class for this, so
+   we replicate its interactive-normal pattern with Obsidian variables. */
+.ffc-btn-cancel {
+  background: var(--interactive-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  cursor: pointer;
+  padding: 6px 14px;
+  font-size: 0.9em;
+}
+
+.ffc-btn-cancel:hover { background: var(--interactive-hover); }
+
+.ffc-new-object-modal    { padding: 8px; }
+.ffc-new-object-modal h2 { margin-bottom: 16px; }
+
+/* Textarea — layout only; let Obsidian's own theme styles handle
+   background, border, color, and font so it matches text inputs exactly */
+.ffc-new-object-modal textarea {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Object link pills
+   ══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ── Reading / preview mode ─────────────────────────────────────────────── */
+
+.markdown-rendered a.internal-link.ffc-obj-link,
+.markdown-preview-view a.internal-link.ffc-obj-link,
+.markdown-reading-view a.internal-link.ffc-obj-link {
+  --link-decoration: none;
+  --link-decoration-hover: none;
+  text-decoration: none !important;
+  text-decoration-line: none !important;
+  background: var(--tag-background);
+  color: var(--tag-color) !important;
+  border-radius: var(--radius-xs, 2px);
+  padding: 1px 5px;
+  border: var(--tag-border-width, 0px) solid var(--tag-border-color, transparent);
+  font-size: var(--tag-size, inherit);
+}
+
+.markdown-rendered a.internal-link.ffc-obj-link:hover,
+.markdown-preview-view a.internal-link.ffc-obj-link:hover,
+.markdown-reading-view a.internal-link.ffc-obj-link:hover {
+  --link-decoration: none;
+  --link-decoration-hover: none;
+  text-decoration: none !important;
+  text-decoration-line: none !important;
+  background: var(--tag-background-hover, var(--interactive-hover));
+  color: var(--tag-color-hover, var(--tag-color)) !important;
+  border-color: var(--tag-border-color-hover, var(--tag-border-color, transparent));
+}
+
+
+/* ── Object preview popup ───────────────────────────────────────────────── */
+
+.ffc-preview-popup {
+  position: fixed;
+  z-index: var(--layer-popover, 9999);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-m);
+  padding: 14px 16px 12px;
+  min-width: 220px;
+  max-width: 360px;
+  pointer-events: auto;
+  font-size: var(--font-ui-small, 13px);
+  line-height: 1.5;
+}
+
+/* Cover image — sits flush at the top of the popup, above the title */
+.ffc-preview-image {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  /* Bleed to the edges of the popup's padding */
+  margin: -14px -16px 12px;
+  width: calc(100% + 32px);
+}
+
+.ffc-preview-header { margin-bottom: 10px; }
+
+.ffc-preview-title {
+  display: block;
+  font-weight: 600;
+  font-size: 0.95em;
+  color: var(--text-normal);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ffc-preview-divider {
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+  margin: 0 0 10px;
+}
+
+.ffc-preview-body { display: flex; flex-direction: column; gap: 5px; }
+
+.ffc-preview-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.88em;
+}
+
+.ffc-preview-label {
+  color: var(--text-muted);
+  min-width: 64px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ffc-preview-value {
+  color: var(--text-normal);
+  flex: 1;
+  word-break: break-word;
+}
+
+
+/* ── Live preview / source mode (CM6 decoration) ────────────────────────── */
+
+/* Folded wikilinks (cursor is elsewhere): Obsidian renders a single <a> widget
+   element. We apply ffc-obj-link to it via DOM in the view plugin, and style it
+   here. Being a single element, border-radius and padding work without issue. */
+.cm-editor a.internal-link.ffc-obj-link {
+  --link-decoration: none;
+  --link-decoration-hover: none;
+  text-decoration: none !important;
+  text-decoration-line: none !important;
+  background: var(--tag-background);
+  color: var(--tag-color) !important;
+  border-radius: var(--radius-xs, 2px);
+  padding: 1px 5px;
+  border: var(--tag-border-width, 0px) solid var(--tag-border-color, transparent);
+}
+
+.cm-editor a.internal-link.ffc-obj-link:hover {
+  background: var(--tag-background-hover, var(--interactive-hover));
+  color: var(--tag-color-hover, var(--tag-color)) !important;
+  border-color: var(--tag-border-color-hover, var(--tag-border-color, transparent));
+}
+
+/* Expanded wikilinks (cursor is inside [[...]]): CM6 splits the link across
+   multiple adjacent <span> elements (brackets + text). Each span gets the class
+   via Decoration.mark(). border-radius and box-shadow on individual spans cause
+   separate pill shapes and semi-transparent stacking at boundaries (dark
+   rectangles on the bracket chars). Plain background flows continuously. */
+.cm-editor .ffc-obj-link {
+  background: var(--tag-background);
+  padding: 2px 0;
+}
+
+/* Target the inner CM6 link spans directly — you can't cancel a child's
+   own text-decoration by setting none on an ancestor wrapper. */
+.cm-editor .ffc-obj-link,
+.cm-editor .ffc-obj-link .cm-hmd-internal-link,
+.cm-editor .ffc-obj-link .cm-link,
+.cm-editor .ffc-obj-link .cm-underline {
+  text-decoration: none !important;
+  text-decoration-line: none !important;
+  color: var(--tag-color) !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Canvas — object card button
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Our button is a <div class="canvas-card-menu-button mod-draggable
+   ffc-canvas-object-btn">. Obsidian's app.css already styles
+   .canvas-card-menu-button (flex, icon size, padding, hover lift) and
+   .mod-draggable (cursor: grab). No overrides needed — the element picks up
+   all native behaviour automatically just by having those classes. */
+
+/* Dim the button while a drag is in flight */
+.canvas-card-menu-button.ffc-canvas-object-btn.is-dragging {
+  opacity: 0.4;
+}
+
+/* Ghost card — fixed-position so it follows the viewport cursor exactly.
+   Styled to match Obsidian's own canvas drag-ghost: rounded card outline
+   with a semi-transparent accent fill and shadow. */
+.ffc-canvas-drop-ghost {
+  border-radius: var(--radius-l);
+  border: 2px solid var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary) 90%);
+  box-shadow: var(--shadow-l);
+  opacity: 0.9;
+  pointer-events: none;
+  /* z-index sits above canvas nodes but below Obsidian modals */
+  z-index: var(--layer-notice, 200);
+}
