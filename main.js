@@ -201,7 +201,15 @@ class FrontmatterValueSuggest {
     });
 
     matches.forEach((value, i) => {
-      const item = this.dropdown.createDiv({ cls: 'suggestion-item', text: value });
+      const isLink = /^\[\[.*\]\]$/.test(value);
+      const displayText = isLink ? value.slice(2, -2) : value;
+
+      const item = this.dropdown.createDiv({ cls: 'suggestion-item ffc-suggest-item' });
+      item.createSpan({ cls: 'ffc-suggest-label', text: displayText });
+      if (isLink) {
+        const icon = item.createSpan({ cls: 'ffc-suggest-link-icon' });
+        obsidian.setIcon(icon, 'link');
+      }
       // mousedown + preventDefault keeps focus on the input (avoids blur-before-click)
       item.addEventListener('mousedown', (e) => { e.preventDefault(); });
       item.addEventListener('click',     ()  => { this.select(value); });
@@ -237,8 +245,31 @@ class FrontmatterValueSuggest {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
+ * Collect every distinct frontmatter value used for `key` across the vault,
+ * sorted case-insensitively. For tag/tags keys the tag cache is also consulted.
+ */
+function getVaultValuesForKey(app, key) {
+  const values = new Set();
+  if (key === 'tags' || key === 'tag') {
+    const tags = app.metadataCache.getTags() ?? {};
+    for (const tag of Object.keys(tags)) {
+      values.add(tag.startsWith('#') ? tag.slice(1) : tag);
+    }
+  }
+  for (const file of app.vault.getMarkdownFiles()) {
+    const raw = app.metadataCache.getFileCache(file)?.frontmatter?.[key];
+    if (raw == null) continue;
+    if (Array.isArray(raw)) raw.forEach((v) => { if (v != null) values.add(String(v).trim()); });
+    else { const s = String(raw).trim(); if (s) values.add(s); }
+  }
+  return [...values].filter(Boolean)
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+}
+
+/**
  * Render the extra frontmatter fields defined on an object type into a container.
- * Attaches vault-wide autocomplete to every field input.
+ * Attaches vault-wide autocomplete to every field input. Wikilink suggestions are
+ * displayed as "Page Name" + a link icon; selecting one stores the full [[...]] value.
  * `app` is required for the suggest widget.
  */
 function renderFieldInputs(container, app, objType, fieldValues, onEnter, insertBefore = null) {
@@ -2419,12 +2450,15 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
   upsertTextInFrontmatter(content, key, value) {
     content = this.ensureFrontmatter(content);
     const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Wikilinks contain [[ ]] which YAML would misparse as nested flow sequences.
+    // Wrap them in double-quotes so YAML treats them as plain strings.
+    const yamlValue = /^\[\[.*\]\]$/.test(value) ? `"${value}"` : value;
     // Use the unified key-block regex so block-list sub-lines are replaced too
     const blockRe = this.keyBlockRegex(esc);
     if (blockRe.test(content)) {
-      return content.replace(blockRe, `${key}: ${value}`);
+      return content.replace(blockRe, `${key}: ${yamlValue}`);
     }
-    return content.replace(/^(---\r?\n)/, `$1${key}: ${value}\n`);
+    return content.replace(/^(---\r?\n)/, `$1${key}: ${yamlValue}\n`);
   }
 
   /** If there's no frontmatter block yet, prepend an empty one. */

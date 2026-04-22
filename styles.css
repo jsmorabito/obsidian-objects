@@ -395,6 +395,36 @@
   opacity: 0.4;
 }
 
+/* ── Frontmatter value suggest — link-style items ───────────────────────── */
+
+/* Each suggestion row: label on the left, optional link icon on the right */
+.ffc-suggest-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ffc-suggest-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ffc-suggest-link-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.ffc-suggest-link-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* Ghost card — fixed-position so it follows the viewport cursor exactly.
    Styled to match Obsidian's own canvas drag-ghost: rounded card outline
    with a semi-transparent accent fill and shadow. */
