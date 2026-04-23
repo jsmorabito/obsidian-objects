@@ -2413,13 +2413,17 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
     content = this.ensureFrontmatter(content);
     const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+    // Wikilinks like [[Page]] contain [[ ]] which YAML misparses as nested flow
+    // sequences. Quote them so YAML treats them as plain strings.
+    const yamlItem = (i) => /^\[\[.*\]\]$/.test(i) ? `"${i}"` : i;
+
     // Inline array:  key: [a, b]  — handle separately as it needs different merge logic
     const inlineRe = new RegExp(`(^${esc}:\\s*\\[)([^\\]]*)(\\])`, 'm');
     if (inlineRe.test(content)) {
       return content.replace(inlineRe, (_, open, body, close) => {
         const existing = body.split(',').map((s) => s.trim()).filter(Boolean);
         const merged = [...new Set([...existing, ...newItems])];
-        return `${open}${merged.join(', ')}${close}`;
+        return `${open}${merged.map(yamlItem).join(', ')}${close}`;
       });
     }
 
@@ -2438,12 +2442,12 @@ class FilteredFileCommandsPlugin extends obsidian.Plugin {
         if (scalarVal) existing = [scalarVal];
       }
       const merged = [...new Set([...existing, ...newItems])];
-      const replacement = `${key}:\n` + merged.map((i) => `  - ${i}`).join('\n');
+      const replacement = `${key}:\n` + merged.map((i) => `  - ${yamlItem(i)}`).join('\n');
       return content.replace(blockRe, replacement);
     }
 
     // Key absent — inject as inline list
-    return content.replace(/^(---\r?\n)/, `$1${key}: [${newItems.join(', ')}]\n`);
+    return content.replace(/^(---\r?\n)/, `$1${key}: [${newItems.map(yamlItem).join(', ')}]\n`);
   }
 
   /** Set a text key, replacing any existing value (and any orphan block lines). */
