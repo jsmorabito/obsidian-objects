@@ -1393,20 +1393,27 @@ class MyPluginSettingTab extends obsidian.PluginSettingTab {
 
 class ObjectPreviewPopup {
   constructor(plugin) {
-    this.plugin    = plugin;
-    this.popup     = null;
-    this.hideTimer = null;
-    this.showTimer = null;
+    this.plugin       = plugin;
+    this.popup        = null;
+    this.hideTimer    = null;
+    this.showTimer    = null;
+    this._currentFile = null;   // file the popup is currently displaying
 
-    this._onMouseOver = this._handleMouseOver.bind(this);
-    this._onMouseOut  = this._handleMouseOut.bind(this);
+    this._onMouseOver  = this._handleMouseOver.bind(this);
+    this._onMouseOut   = this._handleMouseOut.bind(this);
     document.addEventListener('mouseover', this._onMouseOver, true);
     document.addEventListener('mouseout',  this._onMouseOut,  true);
+
+    // Hide popup whenever the user navigates to a different file.
+    this._leafChangeRef = plugin.app.workspace.on('active-leaf-change', () => this.hide());
+    plugin.registerEvent(this._leafChangeRef);
   }
 
   // ── Mouse event handlers ──────────────────────────────────────────────────────
 
   _handleMouseOver(e) {
+    // Ignore events originating inside the popup itself (e.g. wiki links in preview rows)
+    if (this.popup && this.popup.contains(e.target)) return;
     const el = e.target;
     let linkpath = null;
 
@@ -1443,8 +1450,11 @@ class ObjectPreviewPopup {
 
     clearTimeout(this.hideTimer);
     clearTimeout(this.showTimer);
+    // Popup already open for this exact file — just keep it alive, don't rebuild.
+    if (this.popup && this._currentFile === file) return;
+    const triggerEl = anchor ?? el.closest('.cm-hmd-internal-link') ?? null;
     this.showTimer = setTimeout(() => {
-      this._showForFile(file, objType, e.clientX, e.clientY);
+      this._showForFile(file, objType, e.clientX, e.clientY, triggerEl);
     }, 280);
   }
 
@@ -1458,7 +1468,7 @@ class ObjectPreviewPopup {
 
   // ── Build and position the popup ──────────────────────────────────────────────
 
-  async _showForFile(file, objType, clientX, clientY) {
+  async _showForFile(file, objType, clientX, clientY, triggerEl = null) {
     const hasFields = (objType.previewFields?.length > 0);
     const hasImage  = !!(objType.showImageInPreview && objType.imageKey);
     if (!hasFields && !hasImage) return;
@@ -1501,13 +1511,37 @@ class ObjectPreviewPopup {
       if (!key) continue;
       const raw = fm[key];
       if (raw === undefined || raw === null || raw === '') continue;
-      const displayVal = Array.isArray(raw)
-        ? raw.map(String).join(', ')
-        : String(raw);
+
+      // Helper: render a single value string — wiki links become clickable <a> tags
+      const renderValue = (valueEl, str) => {
+        const wikiMatch = String(str).match(/^\[\[(.+?)(?:\|(.+?))?\]\]$/);
+        if (wikiMatch) {
+          const linkPath  = wikiMatch[1];
+          const linkLabel = wikiMatch[2] || wikiMatch[1];
+          const a = valueEl.createEl('a', { text: linkLabel, cls: 'ffc-preview-wikilink internal-link' });
+          a.dataset.href = linkPath;
+          a.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.hide();
+            app.workspace.openLinkText(linkPath, '', false);
+          });
+        } else {
+          valueEl.appendText(String(str));
+        }
+      };
 
       const row = body.createDiv({ cls: 'ffc-preview-row' });
       row.createEl('span', { text: label, cls: 'ffc-preview-label' });
-      row.createEl('span', { text: displayVal, cls: 'ffc-preview-value' });
+      const valueEl = row.createEl('span', { cls: 'ffc-preview-value' });
+      if (Array.isArray(raw)) {
+        raw.forEach((item, i) => {
+          if (i > 0) valueEl.appendText(', ');
+          renderValue(valueEl, item);
+        });
+      } else {
+        renderValue(valueEl, raw);
+      }
       hasRows = true;
     }
 
@@ -1518,26 +1552,63 @@ class ObjectPreviewPopup {
     }
 
     document.body.appendChild(popup);
-    this.popup = popup;
+    this.popup        = popup;
+    this._currentFile = file;
 
-    // Keep popup alive while mouse is over it
+    // Keep popup alive while mouse is over it.
     popup.addEventListener('mouseenter', () => clearTimeout(this.hideTimer));
     popup.addEventListener('mouseleave', () => {
       this.hideTimer = setTimeout(() => this.hide(), 200);
     });
 
-    // Smart positioning: prefer bottom-right of cursor, flip if near edges
+    // Click anywhere on the popup (except on an embedded wikilink, which has
+    // its own handler) → navigate to the previewed file. Listener lives on the
+    // popup element itself — NOT at document level — so clicks on the trigger
+    // link are completely untouched and Obsidian's native link handling runs.
+    popup.addEventListener('click', (e) => {
+      if (e.target.closest('.ffc-preview-wikilink')) return;
+      const fileToOpen = this._currentFile;
+      this.hide();
+      if (fileToOpen) {
+        const newLeaf = e.metaKey || e.ctrlKey ? 'tab' : false;
+        // openLinkText is more reliable than getLeaf().openFile() across
+        // Obsidian versions and handles leaf selection internally.
+        this.plugin.app.workspace.openLinkText(fileToOpen.basename, '', newLeaf);
+      }
+    });
+
+    // Position the popup below the trigger element.
     const margin = 12;
     const vw     = window.innerWidth;
     const vh     = window.innerHeight;
-    const pw     = popup.offsetWidth  || 280;
-    const ph     = popup.offsetHeight || 120;
-    let   left   = clientX + margin;
-    let   top    = clientY + margin;
-    if (left + pw > vw - margin) left = clientX - pw - margin;
-    if (top  + ph > vh - margin) top  = clientY - ph - margin;
-    popup.style.left = `${Math.max(margin, left)}px`;
-    popup.style.top  = `${Math.max(margin, top)}px`;
+
+    // Use a rAF-deferred measurement so the browser has laid out the popup
+    // and offsetWidth/Height are accurate before we position it.
+    const positionPopup = () => {
+      if (!this.popup) return;
+      const pw = popup.offsetWidth  || 280;
+      const ph = popup.offsetHeight || 120;
+      let left, top;
+
+      const r = triggerEl ? triggerEl.getBoundingClientRect() : null;
+      if (r && (r.width > 0 || r.height > 0)) {
+        // Anchor below the trigger, left-aligned but never overlapping it
+        left = r.left;
+        top  = r.bottom + 6;
+        // Flip above if too close to bottom edge
+        if (top  + ph > vh - margin) top  = r.top - ph - 6;
+        // Shift left so right edge of popup doesn't overflow viewport
+        if (left + pw > vw - margin) left = vw - margin - pw;
+      } else {
+        left = clientX + margin;
+        top  = clientY + margin;
+        if (left + pw > vw - margin) left = clientX - pw - margin;
+        if (top  + ph > vh - margin) top  = clientY - ph - margin;
+      }
+      popup.style.left = `${Math.max(margin, left)}px`;
+      popup.style.top  = `${Math.max(margin, top)}px`;
+    };
+    requestAnimationFrame(positionPopup);
   }
 
   /**
@@ -1576,6 +1647,7 @@ class ObjectPreviewPopup {
 
   hide() {
     if (this.popup) { this.popup.remove(); this.popup = null; }
+    this._currentFile = null;
   }
 
   destroy() {

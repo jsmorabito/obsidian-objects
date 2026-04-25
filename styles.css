@@ -334,6 +334,18 @@
   word-break: break-word;
 }
 
+.ffc-preview-wikilink {
+  color: var(--link-color);
+  text-decoration: var(--link-decoration);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ffc-preview-wikilink:hover {
+  color: var(--link-color-hover);
+  text-decoration: var(--link-decoration-hover);
+}
+
 
 /* ── Live preview / source mode (CM6 decoration) ────────────────────────── */
 
