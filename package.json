@@ -1,6 +1,6 @@
 {
   "name": "obsidian-objects",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Define custom note types with creation commands, filtered file pickers, hover previews, and a sidebar widget.",
   "main": "main.js",
   "scripts": {
@@ -21,7 +21,7 @@
     "eslint": "^10.8.0",
     "eslint-plugin-obsidianmd": "^0.4.1",
     "globals": "^17.9.0",
-    "obsidian": "latest",
+    "obsidian": "^1.13.1",
     "tslib": "2.4.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.66.0"

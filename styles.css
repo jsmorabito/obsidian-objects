@@ -5,18 +5,8 @@
 
 
 /* ── Settings UI ─────────────────────────────────────────────────────────── */
-
-.ffc-settings-desc {
-  color: var(--text-muted);
-  margin-bottom: 1.5em;
-  line-height: 1.5;
-}
-
-.ffc-divider {
-  border: none;
-  border-top: 1px solid var(--background-modifier-border);
-  margin: 2em 0;
-}
+/* The settings tab itself is declarative (getSettingDefinitions); the rules
+   below style the modals and the note-type sub-page it opens. */
 
 .ffc-filters-section {
   margin-top: 12px;
@@ -70,7 +60,6 @@
 
 .ffc-input-key   { width: 140px; }
 .ffc-input-val   { width: 150px; }
-.ffc-input-label { width: 110px; }
 
 .ffc-select {
   background: var(--background-primary);
@@ -100,90 +89,7 @@
 }
 
 
-/* ── Section header with + button ───────────────────────────────────────── */
-
-.ffc-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.5em;
-}
-
-.ffc-section-header-title { margin: 0; }
-
-/* Danger tint for clickable-icon trash buttons */
-.ffc-btn-icon-danger:hover { color: var(--color-red) !important; }
-
-
-/* ── Compact item list ──────────────────────────────────────────────────── */
-/* Mirrors Obsidian's installed-plugins card + row pattern. Shared by the
-   Note Types list and the Filtered File Commands list. */
-
-.ffc-item-list {
-  background: var(--setting-items-background);
-  border-radius: var(--radius-m);
-  padding: 0 18px;
-  margin-bottom: 16px;
-}
-
-.ffc-item-empty {
-  color: var(--text-muted);
-  font-style: italic;
-  font-size: 0.9em;
-  padding: 4px 0;
-}
-
-.ffc-item-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 0;
-  cursor: pointer;
-}
-
-.ffc-item-row + .ffc-item-row {
-  border-top: 1px solid var(--background-modifier-border);
-}
-
-.ffc-item-row-info { flex: 1; min-width: 0; }
-
-.ffc-item-row-name {
-  font-size: var(--font-ui-medium);
-  font-weight: var(--font-semibold);
-  color: var(--text-normal);
-  margin-bottom: 2px;
-}
-
-.ffc-item-row-desc {
-  font-size: var(--font-ui-small);
-  color: var(--text-muted);
-}
-
-.ffc-item-row-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  margin-left: 12px;
-}
-
-
-/* ── Sub-page (definition editor) ───────────────────────────────────────── */
-/* Mirrors Obsidian's own settings sub-pages (e.g. Ribbon menu configuration):
-   a back arrow + title row above the full-width editor, instead of a modal. */
-
-.ffc-subpage-header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 1em;
-}
-
-.ffc-subpage-title {
-  font-size: var(--font-ui-large);
-  font-weight: var(--font-semibold);
-  color: var(--text-normal);
-}
+/* ── Note-type sub-page ────────────────────────────────────────────────── */
 
 .ffc-item-page { max-width: 640px; }
 

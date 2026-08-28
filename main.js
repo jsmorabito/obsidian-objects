@@ -24,13 +24,13 @@ __export(main_exports, {
   default: () => main_default
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian17 = require("obsidian");
+var import_obsidian20 = require("obsidian");
 
 // src/settings.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/ui/note-type-settings-page.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/utils/helpers.ts
 var import_obsidian2 = require("obsidian");
@@ -260,20 +260,166 @@ function renderFieldInputs(container, app, noteType, fieldValues, onEnter, inser
   }
 }
 
-// src/ui/note-type-settings-page.ts
-var NoteTypeSettingsPage = class {
-  constructor(app, plugin, index, onTitleChange) {
-    this.app = app;
+// src/ui/note-type-filter-modal.ts
+var import_obsidian3 = require("obsidian");
+var NoteTypeFilterModal = class extends import_obsidian3.Modal {
+  constructor(app, plugin, filter, onDismiss) {
+    super(app);
     this.plugin = plugin;
-    this.index = index;
-    this.onTitleChange = onTitleChange;
+    this.filter = filter;
+    this.onDismiss = onDismiss;
   }
-  render(containerEl) {
-    this.containerEl = containerEl;
+  onOpen() {
     this._render();
   }
   _render() {
-    var _a, _b, _c, _d, _e, _f;
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("ffc-item-modal");
+    const filter = this.filter;
+    const isPathOp = filter.operator === "in_folder" || filter.operator === "not_in_folder";
+    contentEl.createEl("h2", { text: "Detection filter", cls: "ffc-modal-title" });
+    if (!isPathOp) {
+      new import_obsidian3.Setting(contentEl).setName("Property key").setDesc("Frontmatter property to test on each file.").addText((text) => {
+        var _a;
+        return text.setPlaceholder("E.g. type").setValue((_a = filter.key) != null ? _a : "").onChange(async (value) => {
+          filter.key = value.trim();
+          await this.plugin.saveSettings();
+        });
+      });
+    }
+    new import_obsidian3.Setting(contentEl).setName("Condition").setDesc("How the property is compared.").addDropdown((dd) => dd.addOption("equals", "Equals").addOption("not_equals", "Does not equal").addOption("contains", "Contains").addOption("exists", "Exists").addOption("in_folder", "In folder").addOption("not_in_folder", "Not in folder").setValue(filter.operator).onChange(async (value) => {
+      filter.operator = value;
+      await this.plugin.saveSettings();
+      this._render();
+    }));
+    if (filter.operator !== "exists") {
+      new import_obsidian3.Setting(contentEl).setName(isPathOp ? "Folder path" : "Value").setDesc(isPathOp ? "Files under this path match (e.g. Projects/tasks)." : "Value to compare the property against.").addText((text) => {
+        var _a;
+        return text.setPlaceholder(isPathOp ? "E.g. Projects/tasks" : "Value").setValue((_a = filter.value) != null ? _a : "").onChange(async (value) => {
+          filter.value = value;
+          await this.plugin.saveSettings();
+        });
+      });
+    }
+    new import_obsidian3.Setting(contentEl).addButton((btn) => btn.setButtonText("Done").setCta().onClick(() => this.close()));
+  }
+  onClose() {
+    var _a;
+    this.contentEl.empty();
+    (_a = this.onDismiss) == null ? void 0 : _a.call(this);
+  }
+};
+
+// src/ui/note-field-modal.ts
+var import_obsidian4 = require("obsidian");
+var NoteFieldModal = class extends import_obsidian4.Modal {
+  constructor(app, plugin, field, onDismiss) {
+    super(app);
+    this.plugin = plugin;
+    this.field = field;
+    this.onDismiss = onDismiss;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("ffc-item-modal");
+    const field = this.field;
+    contentEl.createEl("h2", { text: "Creation field", cls: "ffc-modal-title" });
+    new import_obsidian4.Setting(contentEl).setName("Label").setDesc("Shown next to the input in the creation dialog.").addText((text) => {
+      var _a;
+      return text.setPlaceholder("E.g. Status").setValue((_a = field.label) != null ? _a : "").onChange(async (value) => {
+        field.label = value;
+        await this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian4.Setting(contentEl).setName("Frontmatter key").setDesc("Property key written into the new file.").addText((text) => {
+      var _a;
+      return text.setPlaceholder("E.g. status").setValue((_a = field.key) != null ? _a : "").onChange(async (value) => {
+        field.key = value.trim();
+        await this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian4.Setting(contentEl).setName("Type").setDesc("List splits comma-separated input into a YAML array.").addDropdown((dd) => {
+      var _a;
+      return dd.addOption("text", "Text").addOption("list", "List").setValue((_a = field.type) != null ? _a : "text").onChange(async (value) => {
+        field.type = value;
+        await this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian4.Setting(contentEl).addButton((btn) => btn.setButtonText("Done").setCta().onClick(() => this.close()));
+  }
+  onClose() {
+    var _a;
+    this.contentEl.empty();
+    (_a = this.onDismiss) == null ? void 0 : _a.call(this);
+  }
+};
+
+// src/ui/key-label-field-modal.ts
+var import_obsidian5 = require("obsidian");
+var KeyLabelFieldModal = class extends import_obsidian5.Modal {
+  constructor(app, plugin, entry, opts) {
+    super(app);
+    this.plugin = plugin;
+    this.entry = entry;
+    this.heading = opts.heading;
+    this.afterChange = opts.afterChange;
+    this.onDismiss = opts.onDismiss;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("ffc-item-modal");
+    const entry = this.entry;
+    contentEl.createEl("h2", { text: this.heading, cls: "ffc-modal-title" });
+    new import_obsidian5.Setting(contentEl).setName("Display label").setDesc("Leave blank to use the key name.").addText((text) => {
+      var _a;
+      return text.setPlaceholder("E.g. Status").setValue((_a = entry.label) != null ? _a : "").onChange(async (value) => {
+        var _a2;
+        entry.label = value;
+        await this.plugin.saveSettings();
+        (_a2 = this.afterChange) == null ? void 0 : _a2.call(this);
+      });
+    });
+    new import_obsidian5.Setting(contentEl).setName("Frontmatter key").setDesc("Property key whose value is shown.").addText((text) => {
+      var _a;
+      return text.setPlaceholder("E.g. status").setValue((_a = entry.key) != null ? _a : "").onChange(async (value) => {
+        var _a2;
+        entry.key = value.trim();
+        await this.plugin.saveSettings();
+        (_a2 = this.afterChange) == null ? void 0 : _a2.call(this);
+      });
+    });
+    new import_obsidian5.Setting(contentEl).addButton((btn) => btn.setButtonText("Done").setCta().onClick(() => this.close()));
+  }
+  onClose() {
+    var _a;
+    this.contentEl.empty();
+    (_a = this.onDismiss) == null ? void 0 : _a.call(this);
+  }
+};
+
+// src/ui/note-type-settings-page.ts
+var OP_LABELS = {
+  equals: "equals",
+  not_equals: "does not equal",
+  contains: "contains",
+  exists: "exists",
+  in_folder: "in folder",
+  not_in_folder: "not in folder"
+};
+var NoteTypeSettingsPage = class extends import_obsidian6.SettingPage {
+  constructor(plugin, index, onDataChange) {
+    var _a;
+    super();
+    this.plugin = plugin;
+    this.index = index;
+    this.onDataChange = onDataChange;
+    this.title = ((_a = plugin.settings.noteTypes[index]) == null ? void 0 : _a.name) || "Note type";
+  }
+  display() {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
     const contentEl = this.containerEl;
     const scroller = this._scrollParent(contentEl);
     const prevScroll = (_a = scroller == null ? void 0 : scroller.scrollTop) != null ? _a : 0;
@@ -284,9 +430,9 @@ var NoteTypeSettingsPage = class {
       contentEl.createEl("p", { text: "Note type not found." });
       return;
     }
-    new import_obsidian3.Setting(contentEl).setName("Note type name").setDesc('Creates a "Create new {name}" command in the palette.').addText(
+    new import_obsidian6.Setting(contentEl).setName("Note type name").setDesc('Creates a "Create new {name}" command in the palette.').addText(
       (text) => text.setPlaceholder("E.g. Task").setValue(obj.name).onChange(async (value) => {
-        var _a2;
+        var _a2, _b2;
         obj.name = value;
         await this.plugin.saveSettings();
         const cmdId = `ffc-notetype-${obj.commandSlug}`;
@@ -296,13 +442,17 @@ var NoteTypeSettingsPage = class {
         const findCmdId = `${cmdId}-find`;
         if (refs[findCmdId])
           refs[findCmdId].name = `Find ${value}`;
-        (_a2 = this.onTitleChange) == null ? void 0 : _a2.call(this, value || "Note type");
+        this.title = value || "Note type";
+        (_a2 = this.titlebarEl.querySelector(".setting-page-title")) == null ? void 0 : _a2.setText(this.title);
+        (_b2 = this.onDataChange) == null ? void 0 : _b2.call(this);
       })
     );
-    new import_obsidian3.Setting(contentEl).setName("Description").setDesc("Short description shown beneath the note type name in the settings list.").addText(
+    new import_obsidian6.Setting(contentEl).setName("Description").setDesc("Short description shown beneath the note type name in the settings list.").addText(
       (text) => text.setPlaceholder("E.g. Tracks actionable to-dos").setValue(obj.description || "").onChange(async (value) => {
+        var _a2;
         obj.description = value;
         await this.plugin.saveSettings();
+        (_a2 = this.onDataChange) == null ? void 0 : _a2.call(this);
       })
     );
     if (obj.commandSlug !== nameToCommandSlug(obj.name)) {
@@ -311,13 +461,12 @@ var NoteTypeSettingsPage = class {
         cls: "ffc-hint ffc-slug-warning"
       });
     }
-    const detectionSection = contentEl.createDiv({ cls: "ffc-filters-section" });
-    detectionSection.createEl("p", { text: "Note detection", cls: "ffc-filters-title" });
-    detectionSection.createEl("p", {
+    new import_obsidian6.Setting(contentEl).setName("Note detection").setHeading();
+    contentEl.createEl("p", {
       text: 'Filters that identify existing files of this type. Used by the trigger menu and the "find" command. If no filters are set, files in the save folder are used as a fallback.',
       cls: "ffc-hint"
     });
-    new import_obsidian3.Setting(detectionSection).setName("Filter match mode").setDesc("Should a file match all filters (and) or at least one filter (or)?").addDropdown(
+    new import_obsidian6.Setting(contentEl).setName("Filter match mode").setDesc("Should a file match all filters (and) or at least one filter (or)?").addDropdown(
       (dd) => {
         var _a2;
         return dd.addOption("all", "Match all (and)").addOption("any", "Match any (or)").setValue((_a2 = obj.matchMode) != null ? _a2 : "all").onChange(async (value) => {
@@ -327,21 +476,28 @@ var NoteTypeSettingsPage = class {
       }
     );
     if (!obj.matchFilters || obj.matchFilters.length === 0) {
-      detectionSection.createEl("p", { text: "No filters \u2014 save folder will be used as a fallback.", cls: "ffc-hint" });
+      contentEl.createEl("p", { text: "No filters \u2014 save folder will be used as a fallback.", cls: "ffc-hint" });
     }
     for (let fi = 0; fi < ((_b = obj.matchFilters) != null ? _b : []).length; fi++) {
-      this._renderNoteMatchFilter(detectionSection, fi);
+      const filter = obj.matchFilters[fi];
+      new import_obsidian6.Setting(contentEl).setName(this._filterSummary(filter)).addExtraButton((btn) => btn.setIcon("pencil").setTooltip("Edit filter").onClick(() => new NoteTypeFilterModal(this.plugin.app, this.plugin, filter, () => this.display()).open())).addExtraButton((btn) => btn.setIcon("trash-2").setTooltip("Remove filter").onClick(async () => {
+        obj.matchFilters.splice(fi, 1);
+        await this.plugin.saveSettings();
+        this.display();
+      }));
     }
-    new import_obsidian3.Setting(detectionSection).addButton(
-      (btn) => btn.setButtonText("\uFF0B add detection filter").onClick(async () => {
+    new import_obsidian6.Setting(contentEl).addButton(
+      (btn) => btn.setButtonText("Add detection filter").onClick(async () => {
         if (!obj.matchFilters)
           obj.matchFilters = [];
-        obj.matchFilters.push({ key: "", operator: "equals", value: "" });
+        const filter = { key: "", operator: "equals", value: "" };
+        obj.matchFilters.push(filter);
         await this.plugin.saveSettings();
-        this._render();
+        this.display();
+        new NoteTypeFilterModal(this.plugin.app, this.plugin, filter, () => this.display()).open();
       })
     );
-    new import_obsidian3.Setting(detectionSection).setName("Show in trigger menu").setDesc(`When enabled, matching files appear in the "${this.plugin.settings.triggerKey || "@"}" inline trigger menu.`).addToggle(
+    new import_obsidian6.Setting(contentEl).setName("Show in trigger menu").setDesc(`When enabled, matching files appear in the "${this.plugin.settings.triggerKey || "@"}" inline trigger menu.`).addToggle(
       (toggle) => {
         var _a2;
         return toggle.setValue((_a2 = obj.showInTriggerMenu) != null ? _a2 : false).onChange(async (value) => {
@@ -350,7 +506,7 @@ var NoteTypeSettingsPage = class {
         });
       }
     );
-    new import_obsidian3.Setting(detectionSection).setName('Enable "find" command').setDesc(`When enabled, adds a "Find ${obj.name}" command to the palette for fuzzy-searching files of this type.`).addToggle(
+    new import_obsidian6.Setting(contentEl).setName('Enable "find" command').setDesc(`When enabled, adds a "Find ${obj.name}" command to the palette for fuzzy-searching files of this type.`).addToggle(
       (toggle) => {
         var _a2;
         return toggle.setValue((_a2 = obj.enableFindCommand) != null ? _a2 : false).onChange(async (value) => {
@@ -361,7 +517,7 @@ var NoteTypeSettingsPage = class {
         });
       }
     );
-    new import_obsidian3.Setting(detectionSection).setName("Style note links").setDesc("When enabled, inline links to files of this type will have their underline removed and a background fill applied.").addToggle(
+    new import_obsidian6.Setting(contentEl).setName("Style note links").setDesc("When enabled, inline links to files of this type will have their underline removed and a background fill applied.").addToggle(
       (toggle) => {
         var _a2;
         return toggle.setValue((_a2 = obj.styledLinks) != null ? _a2 : false).onChange(async (value) => {
@@ -372,7 +528,7 @@ var NoteTypeSettingsPage = class {
         });
       }
     );
-    new import_obsidian3.Setting(detectionSection).setName("Show status in links").setDesc('When enabled, a status icon is shown on inline links to files of this type that have a "status" frontmatter field.').addToggle(
+    new import_obsidian6.Setting(contentEl).setName("Show status in links").setDesc('When enabled, a status icon is shown on inline links to files of this type that have a "status" frontmatter field.').addToggle(
       (toggle) => {
         var _a2;
         return toggle.setValue((_a2 = obj.showStatusInLinks) != null ? _a2 : false).onChange(async (value) => {
@@ -385,7 +541,7 @@ var NoteTypeSettingsPage = class {
     );
     const templateFiles = this.plugin.getTemplateFiles();
     if (templateFiles.length > 0) {
-      new import_obsidian3.Setting(contentEl).setName("Template").setDesc("Template file applied when creating a new note of this type.").addDropdown((dd) => {
+      new import_obsidian6.Setting(contentEl).setName("Template").setDesc("Template file applied when creating a new note of this type.").addDropdown((dd) => {
         dd.addOption("", "\u2014 none \u2014");
         for (const f of templateFiles)
           dd.addOption(f.path, f.basename);
@@ -396,42 +552,48 @@ var NoteTypeSettingsPage = class {
         });
       });
     } else {
-      new import_obsidian3.Setting(contentEl).setName("Template").setDesc("No templates found. Set the templates folder in General settings, or check it contains .md files.").addText(
+      new import_obsidian6.Setting(contentEl).setName("Template").setDesc("No templates found. Set the templates folder in the main settings, or check it contains .md files.").addText(
         (text) => text.setPlaceholder("path/to/template.md").setValue(obj.templatePath || "").onChange(async (value) => {
           obj.templatePath = value.trim();
           await this.plugin.saveSettings();
         })
       );
     }
-    new import_obsidian3.Setting(contentEl).setName("Save folder").setDesc('Where new files are created (e.g. "projects/tasks"). Leave blank for vault root.').addText(
+    new import_obsidian6.Setting(contentEl).setName("Save folder").setDesc('Where new files are created (e.g. "projects/tasks"). Leave blank for vault root.').addText(
       (text) => text.setPlaceholder("E.g. Projects/tasks").setValue(obj.saveFolder || "").onChange(async (value) => {
         obj.saveFolder = value.trim();
         await this.plugin.saveSettings();
       })
     );
-    const fieldsSection = contentEl.createDiv({ cls: "ffc-filters-section" });
-    fieldsSection.createEl("p", { text: "Creation fields", cls: "ffc-filters-title" });
-    fieldsSection.createEl("p", {
+    new import_obsidian6.Setting(contentEl).setName("Creation fields").setHeading();
+    contentEl.createEl("p", {
       text: "Fields shown in the creation dialog. Values are written into the new file's frontmatter.",
       cls: "ffc-hint"
     });
     for (let fi = 0; fi < ((_c = obj.fields) != null ? _c : []).length; fi++) {
-      this._renderNoteField(fieldsSection, fi);
+      const field = obj.fields[fi];
+      new import_obsidian6.Setting(contentEl).setName(((_d = field.label) == null ? void 0 : _d.trim()) || ((_e = field.key) == null ? void 0 : _e.trim()) || "Unnamed field").setDesc(this._fieldDesc(field)).addExtraButton((btn) => btn.setIcon("pencil").setTooltip("Edit field").onClick(() => new NoteFieldModal(this.plugin.app, this.plugin, field, () => this.display()).open())).addExtraButton((btn) => btn.setIcon("trash-2").setTooltip("Remove field").onClick(async () => {
+        obj.fields.splice(fi, 1);
+        await this.plugin.saveSettings();
+        this.display();
+      }));
     }
-    new import_obsidian3.Setting(fieldsSection).addButton(
-      (btn) => btn.setButtonText("\uFF0B add field").onClick(async () => {
+    new import_obsidian6.Setting(contentEl).addButton(
+      (btn) => btn.setButtonText("Add field").onClick(async () => {
         if (!obj.fields)
           obj.fields = [];
-        obj.fields.push({ key: "", label: "", type: "text" });
+        const field = { key: "", label: "", type: "text" };
+        obj.fields.push(field);
         await this.plugin.saveSettings();
-        this._render();
+        this.display();
+        new NoteFieldModal(this.plugin.app, this.plugin, field, () => this.display()).open();
       })
     );
-    const urlFieldOptions = ((_d = obj.fields) != null ? _d : []).filter((f) => {
+    const urlFieldOptions = ((_f = obj.fields) != null ? _f : []).filter((f) => {
       var _a2;
       return (_a2 = f.key) == null ? void 0 : _a2.trim();
     });
-    new import_obsidian3.Setting(fieldsSection).setName("Field for highlighted URL").setDesc("When you create a note of this type from a highlighted URL, the URL is written into this field instead of becoming the title.").addDropdown((dd) => {
+    new import_obsidian6.Setting(contentEl).setName("Field for highlighted URL").setDesc("When you create a note of this type from a highlighted URL, the URL is written into this field instead of becoming the title.").addDropdown((dd) => {
       var _a2, _b2;
       dd.addOption("", "\u2014 none \u2014");
       for (const f of urlFieldOptions) {
@@ -446,25 +608,47 @@ var NoteTypeSettingsPage = class {
         await this.plugin.saveSettings();
       });
     });
-    const previewSection = contentEl.createDiv({ cls: "ffc-filters-section" });
-    previewSection.createEl("p", { text: "Preview fields", cls: "ffc-filters-title" });
-    previewSection.createEl("p", {
+    new import_obsidian6.Setting(contentEl).setName("Preview fields").setHeading();
+    contentEl.createEl("p", {
       text: "Frontmatter keys shown when hovering over a link to a note of this type.",
       cls: "ffc-hint"
     });
-    for (let fi = 0; fi < ((_e = obj.previewFields) != null ? _e : []).length; fi++) {
-      this._renderPreviewField(previewSection, fi);
+    for (let fi = 0; fi < ((_g = obj.previewFields) != null ? _g : []).length; fi++) {
+      const field = obj.previewFields[fi];
+      new import_obsidian6.Setting(contentEl).setName(((_h = field.label) == null ? void 0 : _h.trim()) || ((_i = field.key) == null ? void 0 : _i.trim()) || "Unnamed key").setDesc(((_j = field.key) == null ? void 0 : _j.trim()) ? `key: ${field.key}` : "no key set").addExtraButton((btn) => btn.setIcon("pencil").setTooltip("Edit key").onClick(() => new KeyLabelFieldModal(this.plugin.app, this.plugin, field, {
+        heading: "Preview field",
+        afterChange: () => {
+          this.plugin.buildStyledNoteSet();
+          this.plugin.refreshNoteLinkStyles();
+        },
+        onDismiss: () => this.display()
+      }).open())).addExtraButton((btn) => btn.setIcon("trash-2").setTooltip("Remove key").onClick(async () => {
+        obj.previewFields.splice(fi, 1);
+        await this.plugin.saveSettings();
+        this.plugin.buildStyledNoteSet();
+        this.plugin.refreshNoteLinkStyles();
+        this.display();
+      }));
     }
-    new import_obsidian3.Setting(previewSection).addButton(
-      (btn) => btn.setButtonText("\uFF0B add preview field").onClick(async () => {
+    new import_obsidian6.Setting(contentEl).addButton(
+      (btn) => btn.setButtonText("Add preview field").onClick(async () => {
         if (!obj.previewFields)
           obj.previewFields = [];
-        obj.previewFields.push({ key: "", label: "" });
+        const field = { key: "", label: "" };
+        obj.previewFields.push(field);
         await this.plugin.saveSettings();
-        this._render();
+        this.display();
+        new KeyLabelFieldModal(this.plugin.app, this.plugin, field, {
+          heading: "Preview field",
+          afterChange: () => {
+            this.plugin.buildStyledNoteSet();
+            this.plugin.refreshNoteLinkStyles();
+          },
+          onDismiss: () => this.display()
+        }).open();
       })
     );
-    new import_obsidian3.Setting(previewSection).setName("Show cover image in preview").setDesc("When enabled, the image from the image key is shown at the top of the hover card.").addToggle(
+    new import_obsidian6.Setting(contentEl).setName("Show cover image in preview").setDesc("When enabled, the image from the image key is shown at the top of the hover card.").addToggle(
       (toggle) => {
         var _a2;
         return toggle.setValue((_a2 = obj.showImageInPreview) != null ? _a2 : false).onChange(async (value) => {
@@ -473,25 +657,37 @@ var NoteTypeSettingsPage = class {
         });
       }
     );
-    const canvasSection = contentEl.createDiv({ cls: "ffc-filters-section" });
-    canvasSection.createEl("p", { text: "Canvas card fields", cls: "ffc-filters-title" });
-    canvasSection.createEl("p", {
+    new import_obsidian6.Setting(contentEl).setName("Canvas card fields").setHeading();
+    contentEl.createEl("p", {
       text: "Frontmatter keys shown on canvas cards for notes of this type.",
       cls: "ffc-hint"
     });
-    for (let fi = 0; fi < ((_f = obj.canvasFields) != null ? _f : []).length; fi++) {
-      this._renderCanvasField(canvasSection, fi);
+    for (let fi = 0; fi < ((_k = obj.canvasFields) != null ? _k : []).length; fi++) {
+      const field = obj.canvasFields[fi];
+      new import_obsidian6.Setting(contentEl).setName(((_l = field.label) == null ? void 0 : _l.trim()) || ((_m = field.key) == null ? void 0 : _m.trim()) || "Unnamed key").setDesc(((_n = field.key) == null ? void 0 : _n.trim()) ? `key: ${field.key}` : "no key set").addExtraButton((btn) => btn.setIcon("pencil").setTooltip("Edit key").onClick(() => new KeyLabelFieldModal(this.plugin.app, this.plugin, field, {
+        heading: "Canvas card field",
+        onDismiss: () => this.display()
+      }).open())).addExtraButton((btn) => btn.setIcon("trash-2").setTooltip("Remove key").onClick(async () => {
+        obj.canvasFields.splice(fi, 1);
+        await this.plugin.saveSettings();
+        this.display();
+      }));
     }
-    new import_obsidian3.Setting(canvasSection).addButton(
-      (btn) => btn.setButtonText("\uFF0B add canvas field").onClick(async () => {
+    new import_obsidian6.Setting(contentEl).addButton(
+      (btn) => btn.setButtonText("Add canvas field").onClick(async () => {
         if (!obj.canvasFields)
           obj.canvasFields = [];
-        obj.canvasFields.push({ key: "", label: "" });
+        const field = { key: "", label: "" };
+        obj.canvasFields.push(field);
         await this.plugin.saveSettings();
-        this._render();
+        this.display();
+        new KeyLabelFieldModal(this.plugin.app, this.plugin, field, {
+          heading: "Canvas card field",
+          onDismiss: () => this.display()
+        }).open();
       })
     );
-    new import_obsidian3.Setting(canvasSection).setName("Show cover image on canvas cards").setDesc("When enabled, the image from the image key is embedded at the top of the canvas card.").addToggle(
+    new import_obsidian6.Setting(contentEl).setName("Show cover image on canvas cards").setDesc("When enabled, the image from the image key is embedded at the top of the canvas card.").addToggle(
       (toggle) => {
         var _a2;
         return toggle.setValue((_a2 = obj.showImageInCanvas) != null ? _a2 : false).onChange(async (value) => {
@@ -500,13 +696,12 @@ var NoteTypeSettingsPage = class {
         });
       }
     );
-    const imageSection = contentEl.createDiv({ cls: "ffc-filters-section" });
-    imageSection.createEl("p", { text: "Cover image", cls: "ffc-filters-title" });
-    imageSection.createEl("p", {
+    new import_obsidian6.Setting(contentEl).setName("Cover image").setHeading();
+    contentEl.createEl("p", {
       text: 'The frontmatter key whose value is an image path or wikilink (e.g. "cover" or "image").',
       cls: "ffc-hint"
     });
-    new import_obsidian3.Setting(imageSection).setName("Image frontmatter key").setDesc("E.g. cover, image, thumbnail").addText(
+    new import_obsidian6.Setting(contentEl).setName("Image frontmatter key").setDesc("E.g. cover, image, thumbnail").addText(
       (text) => {
         var _a2;
         return text.setPlaceholder("cover").setValue((_a2 = obj.imageKey) != null ? _a2 : "").onChange(async (value) => {
@@ -518,6 +713,24 @@ var NoteTypeSettingsPage = class {
     if (scroller && prevScroll) {
       scroller.scrollTop = Math.min(prevScroll, scroller.scrollHeight - scroller.clientHeight);
     }
+  }
+  _filterSummary(f) {
+    var _a, _b, _c;
+    if (f.operator === "in_folder" || f.operator === "not_in_folder") {
+      return `${OP_LABELS[f.operator]}: ${((_a = f.value) == null ? void 0 : _a.trim()) || "(unset)"}`;
+    }
+    const key = ((_b = f.key) == null ? void 0 : _b.trim()) || "(no key)";
+    if (f.operator === "exists")
+      return `${key} exists`;
+    return `${key} ${OP_LABELS[f.operator]} ${((_c = f.value) == null ? void 0 : _c.trim()) ? `"${f.value}"` : '""'}`;
+  }
+  _fieldDesc(f) {
+    var _a;
+    const parts = [];
+    if ((_a = f.key) == null ? void 0 : _a.trim())
+      parts.push(`key: ${f.key}`);
+    parts.push(f.type === "list" ? "list" : "text");
+    return parts.join(" \xB7 ");
   }
   /** Nearest vertically-scrollable ancestor of `el`, or null. */
   _scrollParent(el) {
@@ -531,163 +744,11 @@ var NoteTypeSettingsPage = class {
     }
     return null;
   }
-  _renderNoteMatchFilter(container, filterIndex) {
-    var _a, _b;
-    const obj = this.plugin.settings.noteTypes[this.index];
-    const filter = obj.matchFilters[filterIndex];
-    const row = container.createDiv({ cls: "ffc-filter-row" });
-    const isPathOp = filter.operator === "in_folder" || filter.operator === "not_in_folder";
-    if (!isPathOp) {
-      const keyInput = row.createEl("input", { cls: "ffc-input ffc-input-key" });
-      keyInput.type = "text";
-      keyInput.placeholder = "Property key";
-      keyInput.value = (_a = filter.key) != null ? _a : "";
-      keyInput.addEventListener("change", () => {
-        filter.key = keyInput.value.trim();
-        void this.plugin.saveSettings();
-      });
-    }
-    const opSelect = row.createEl("select", { cls: "ffc-select" });
-    for (const op of [
-      { value: "equals", label: "=" },
-      { value: "not_equals", label: "\u2260" },
-      { value: "contains", label: "contains" },
-      { value: "exists", label: "exists" },
-      { value: "in_folder", label: "in folder" },
-      { value: "not_in_folder", label: "not in folder" }
-    ]) {
-      const opt = opSelect.createEl("option", { text: op.label, value: op.value });
-      if (filter.operator === op.value)
-        opt.selected = true;
-    }
-    opSelect.addEventListener("change", () => {
-      filter.operator = opSelect.value;
-      void this.plugin.saveSettings();
-      this._render();
-    });
-    if (filter.operator !== "exists") {
-      const valInput = row.createEl("input", { cls: "ffc-input ffc-input-val" });
-      valInput.type = "text";
-      valInput.placeholder = isPathOp ? "Folder path (e.g. Templates)" : "Value";
-      valInput.value = (_b = filter.value) != null ? _b : "";
-      valInput.addEventListener("change", () => {
-        filter.value = valInput.value;
-        void this.plugin.saveSettings();
-      });
-    }
-    row.createEl("button", { text: "\u2715", cls: "ffc-btn-remove" }).onclick = async () => {
-      obj.matchFilters.splice(filterIndex, 1);
-      await this.plugin.saveSettings();
-      this._render();
-    };
-  }
-  _renderNoteField(container, fieldIndex) {
-    var _a, _b;
-    const obj = this.plugin.settings.noteTypes[this.index];
-    const field = obj.fields[fieldIndex];
-    const row = container.createDiv({ cls: "ffc-filter-row" });
-    const labelInput = row.createEl("input", { cls: "ffc-input ffc-input-label" });
-    labelInput.type = "text";
-    labelInput.placeholder = "Label";
-    labelInput.value = (_a = field.label) != null ? _a : "";
-    labelInput.title = "Display label shown in the creation dialog";
-    labelInput.addEventListener("change", () => {
-      field.label = labelInput.value;
-      void this.plugin.saveSettings();
-    });
-    const keyInput = row.createEl("input", { cls: "ffc-input ffc-input-key" });
-    keyInput.type = "text";
-    keyInput.placeholder = "Frontmatter key";
-    keyInput.value = (_b = field.key) != null ? _b : "";
-    keyInput.title = "The frontmatter property key written into the new file";
-    keyInput.addEventListener("change", () => {
-      field.key = keyInput.value.trim();
-      void this.plugin.saveSettings();
-    });
-    const typeSelect = row.createEl("select", { cls: "ffc-select" });
-    for (const t of [{ value: "text", label: "Text" }, { value: "list", label: "List" }]) {
-      const opt = typeSelect.createEl("option", { text: t.label, value: t.value });
-      if (field.type === t.value)
-        opt.selected = true;
-    }
-    typeSelect.title = "List splits comma-separated input into a YAML array";
-    typeSelect.addEventListener("change", () => {
-      field.type = typeSelect.value;
-      void this.plugin.saveSettings();
-    });
-    row.createEl("button", { text: "\u2715", cls: "ffc-btn-remove" }).onclick = async () => {
-      obj.fields.splice(fieldIndex, 1);
-      await this.plugin.saveSettings();
-      this._render();
-    };
-  }
-  _renderPreviewField(container, fieldIndex) {
-    var _a, _b;
-    const obj = this.plugin.settings.noteTypes[this.index];
-    const field = obj.previewFields[fieldIndex];
-    const row = container.createDiv({ cls: "ffc-filter-row" });
-    const labelInput = row.createEl("input", { cls: "ffc-input ffc-input-label" });
-    labelInput.type = "text";
-    labelInput.placeholder = "Display label";
-    labelInput.value = (_a = field.label) != null ? _a : "";
-    labelInput.title = "Label shown in the preview card (leave blank to use the key name)";
-    labelInput.addEventListener("change", () => {
-      field.label = labelInput.value;
-      void this.plugin.saveSettings();
-    });
-    const keyInput = row.createEl("input", { cls: "ffc-input ffc-input-key" });
-    keyInput.type = "text";
-    keyInput.placeholder = "Frontmatter key";
-    keyInput.value = (_b = field.key) != null ? _b : "";
-    keyInput.title = "The frontmatter property key whose value will appear in the preview";
-    keyInput.addEventListener("change", () => {
-      field.key = keyInput.value.trim();
-      void this.plugin.saveSettings();
-      this.plugin.buildStyledNoteSet();
-      this.plugin.refreshNoteLinkStyles();
-    });
-    row.createEl("button", { text: "\u2715", cls: "ffc-btn-remove" }).onclick = async () => {
-      obj.previewFields.splice(fieldIndex, 1);
-      await this.plugin.saveSettings();
-      this.plugin.buildStyledNoteSet();
-      this.plugin.refreshNoteLinkStyles();
-      this._render();
-    };
-  }
-  _renderCanvasField(container, fieldIndex) {
-    var _a, _b;
-    const obj = this.plugin.settings.noteTypes[this.index];
-    const field = obj.canvasFields[fieldIndex];
-    const row = container.createDiv({ cls: "ffc-filter-row" });
-    const labelInput = row.createEl("input", { cls: "ffc-input ffc-input-label" });
-    labelInput.type = "text";
-    labelInput.placeholder = "Display label";
-    labelInput.value = (_a = field.label) != null ? _a : "";
-    labelInput.title = "Label shown on the canvas card (leave blank to use the key name)";
-    labelInput.addEventListener("change", () => {
-      field.label = labelInput.value;
-      void this.plugin.saveSettings();
-    });
-    const keyInput = row.createEl("input", { cls: "ffc-input ffc-input-key" });
-    keyInput.type = "text";
-    keyInput.placeholder = "Frontmatter key";
-    keyInput.value = (_b = field.key) != null ? _b : "";
-    keyInput.title = "The frontmatter property key whose value will appear on the card";
-    keyInput.addEventListener("change", () => {
-      field.key = keyInput.value.trim();
-      void this.plugin.saveSettings();
-    });
-    row.createEl("button", { text: "\u2715", cls: "ffc-btn-remove" }).onclick = async () => {
-      obj.canvasFields.splice(fieldIndex, 1);
-      await this.plugin.saveSettings();
-      this._render();
-    };
-  }
 };
 
 // src/ui/note-type-delete-modal.ts
-var import_obsidian4 = require("obsidian");
-var NoteTypeDeleteModal = class extends import_obsidian4.Modal {
+var import_obsidian7 = require("obsidian");
+var NoteTypeDeleteModal = class extends import_obsidian7.Modal {
   constructor(app, plugin, index, onDismiss) {
     super(app);
     this.plugin = plugin;
@@ -722,8 +783,8 @@ var NoteTypeDeleteModal = class extends import_obsidian4.Modal {
 };
 
 // src/ui/filtered-command-settings-modal.ts
-var import_obsidian5 = require("obsidian");
-var FilteredCommandSettingsModal = class extends import_obsidian5.Modal {
+var import_obsidian8 = require("obsidian");
+var FilteredCommandSettingsModal = class extends import_obsidian8.Modal {
   constructor(app, plugin, index, onDismiss) {
     super(app);
     this.plugin = plugin;
@@ -743,7 +804,7 @@ var FilteredCommandSettingsModal = class extends import_obsidian5.Modal {
       return;
     }
     contentEl.createEl("h2", { text: cmd.name || "Command settings", cls: "ffc-modal-title" });
-    new import_obsidian5.Setting(contentEl).setName("Command name").setDesc("Shown in the command palette and hotkey settings.").addText(
+    new import_obsidian8.Setting(contentEl).setName("Command name").setDesc("Shown in the command palette and hotkey settings.").addText(
       (text) => text.setPlaceholder("E.g. Show active projects").setValue(cmd.name).onChange(async (value) => {
         cmd.name = value;
         await this.plugin.saveSettings();
@@ -755,13 +816,13 @@ var FilteredCommandSettingsModal = class extends import_obsidian5.Modal {
           titleEl.textContent = value || "Command settings";
       })
     );
-    new import_obsidian5.Setting(contentEl).setName("Filter match mode").setDesc("Should a file match all filters (and) or at least one filter (or)?").addDropdown(
+    new import_obsidian8.Setting(contentEl).setName("Filter match mode").setDesc("Should a file match all filters (and) or at least one filter (or)?").addDropdown(
       (dd) => dd.addOption("all", "Match all filters (and)").addOption("any", "Match any filter (or)").setValue(cmd.matchMode).onChange(async (value) => {
         cmd.matchMode = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian5.Setting(contentEl).setName("File types").setDesc("Comma-separated extensions (e.g. md, canvas). Leave blank for Markdown only.").addText(
+    new import_obsidian8.Setting(contentEl).setName("File types").setDesc("Comma-separated extensions (e.g. md, canvas). Leave blank for Markdown only.").addText(
       (text) => text.setPlaceholder("md, canvas").setValue(cmd.fileTypes || "").onChange(async (value) => {
         cmd.fileTypes = value;
         await this.plugin.saveSettings();
@@ -774,7 +835,7 @@ var FilteredCommandSettingsModal = class extends import_obsidian5.Modal {
     }
     for (let fi = 0; fi < cmd.filters.length; fi++)
       this._renderFilter(filtersSection, fi);
-    new import_obsidian5.Setting(filtersSection).addButton(
+    new import_obsidian8.Setting(filtersSection).addButton(
       (btn) => btn.setButtonText("\uFF0B add filter").onClick(async () => {
         cmd.filters.push({ key: "", operator: "equals", value: "" });
         await this.plugin.saveSettings();
@@ -829,8 +890,8 @@ var FilteredCommandSettingsModal = class extends import_obsidian5.Modal {
 };
 
 // src/ui/filtered-command-delete-modal.ts
-var import_obsidian6 = require("obsidian");
-var FilteredCommandDeleteModal = class extends import_obsidian6.Modal {
+var import_obsidian9 = require("obsidian");
+var FilteredCommandDeleteModal = class extends import_obsidian9.Modal {
   constructor(app, plugin, index, onDismiss) {
     super(app);
     this.plugin = plugin;
@@ -877,248 +938,239 @@ var DEFAULT_SETTINGS = {
   ffwSections: [],
   ffwDisplayNameKey: ""
 };
-var MyPluginSettingTab = class extends import_obsidian7.PluginSettingTab {
+var MyPluginSettingTab = class extends import_obsidian10.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
-    this.activeNoteType = null;
     this.plugin = plugin;
   }
-  display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.addClass("ffc-settings");
-    this.filteredCmdsSectionEl = void 0;
-    this.filteredWidgetSectionEl = void 0;
-    if (this.activeNoteType !== null) {
-      this.renderNoteTypePage(containerEl, this.activeNoteType);
-      return;
-    }
-    new import_obsidian7.Setting(containerEl).setName("Trigger key").setDesc('Character that opens the inline note picker while editing (e.g. "@"). Leave blank to disable.').addText(
-      (text) => text.setPlaceholder("E.g. @").setValue(this.plugin.settings.triggerKey || "").onChange(async (value) => {
-        this.plugin.settings.triggerKey = value.trim().slice(0, 1);
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Templates folder").setDesc('Path to your templates folder (e.g. "Templates"). Leave blank to auto-detect from the core Templates plugin.').addText(
-      (text) => text.setPlaceholder("Templates").setValue(this.plugin.settings.templatesFolder || "").onChange(async (value) => {
-        this.plugin.settings.templatesFolder = value.trim();
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian7.Setting(containerEl).setName("Fetch page title from URL").setDesc("When you create a note from a highlighted URL, fetch the linked page and use its title as the note title. This makes a network request to the linked site. Off by default.").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.fetchUrlTitles).onChange(async (value) => {
-        this.plugin.settings.fetchUrlTitles = value;
-        await this.plugin.saveSettings();
-      })
-    );
-    const filteredCmdsSetting = new import_obsidian7.Setting(containerEl).setName("Filtered file commands").setDesc("Create palette commands that open a fuzzy file picker filtered by frontmatter.");
-    if (this.plugin.settings.filteredCommandsEnabled) {
-      filteredCmdsSetting.addExtraButton(
-        (btn) => btn.setIcon("arrow-down").setTooltip("Jump to filtered file commands").onClick(() => {
-          var _a;
-          (_a = this.filteredCmdsSectionEl) == null ? void 0 : _a.scrollIntoView({ behavior: "smooth", block: "start" });
-        })
-      );
-    }
-    filteredCmdsSetting.addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.filteredCommandsEnabled).onChange(async (value) => {
-        this.plugin.settings.filteredCommandsEnabled = value;
-        await this.plugin.saveSettings();
-        this.display();
-      })
-    );
-    const filteredWidgetSetting = new import_obsidian7.Setting(containerEl).setName("Filtered files widget").setDesc("A sidebar panel that shows lists of files matching configurable filter rules.");
-    if (this.plugin.settings.filteredWidgetEnabled) {
-      filteredWidgetSetting.addExtraButton(
-        (btn) => btn.setIcon("arrow-down").setTooltip("Jump to filtered files widget").onClick(() => {
-          var _a;
-          (_a = this.filteredWidgetSectionEl) == null ? void 0 : _a.scrollIntoView({ behavior: "smooth", block: "start" });
-        })
-      );
-    }
-    filteredWidgetSetting.addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.filteredWidgetEnabled).onChange(async (value) => {
-        this.plugin.settings.filteredWidgetEnabled = value;
-        await this.plugin.saveSettings();
-        this.plugin.refreshWidgetRibbonIcon();
-        this.display();
-      })
-    );
-    containerEl.createEl("hr", { cls: "ffc-divider" });
-    const objTypesHeader = containerEl.createDiv({ cls: "ffc-section-header" });
-    new import_obsidian7.Setting(objTypesHeader).setName("Definitions").setHeading();
-    const addObjTypeBtn = objTypesHeader.createEl("button", {
-      cls: "clickable-icon ffc-btn-add",
-      attr: { title: "Add note type", "aria-label": "Add note type" }
-    });
-    (0, import_obsidian7.setIcon)(addObjTypeBtn, "plus");
-    addObjTypeBtn.onclick = async () => {
-      const id = `ffc-notetype-${Date.now()}`;
-      const takenSlugs = new Set(this.plugin.settings.noteTypes.map((o) => o.commandSlug).filter(Boolean));
-      const baseSlug = nameToCommandSlug("New Note");
-      let newSlug = baseSlug;
-      let slugN = 2;
-      while (takenSlugs.has(newSlug))
-        newSlug = `${baseSlug}-${slugN++}`;
-      this.plugin.settings.noteTypes.push({
-        id,
-        commandSlug: newSlug,
-        name: "New Note",
-        templatePath: "",
-        saveFolder: "",
-        fields: [],
-        matchFilters: [],
-        matchMode: "all",
-        enableFindCommand: false,
-        showInTriggerMenu: false,
-        previewFields: [],
-        canvasFields: []
-      });
-      await this.plugin.saveSettings();
-      this.plugin.registerNoteTypeCommand(this.plugin.settings.noteTypes[this.plugin.settings.noteTypes.length - 1]);
-      this.display();
-    };
-    const objTypesList = containerEl.createDiv({ cls: "setting-group ffc-item-list" });
-    if (this.plugin.settings.noteTypes.length === 0) {
-      objTypesList.createEl("p", { text: "No note types yet. Select + to add one.", cls: "ffc-hint ffc-item-empty" });
-    } else {
-      for (let i = 0; i < this.plugin.settings.noteTypes.length; i++) {
-        this.renderNoteTypeRow(objTypesList, i);
-      }
-    }
-    containerEl.createEl("hr", { cls: "ffc-divider" });
-    if (this.plugin.settings.filteredCommandsEnabled) {
-      this.filteredCmdsSectionEl = containerEl.createDiv();
-      const filteredCmdsHeader = this.filteredCmdsSectionEl.createDiv({ cls: "ffc-section-header" });
-      new import_obsidian7.Setting(filteredCmdsHeader).setName("Filtered file commands").setHeading();
-      const addCmdBtn = filteredCmdsHeader.createEl("button", {
-        cls: "clickable-icon ffc-btn-add",
-        attr: { title: "Add filtered command", "aria-label": "Add filtered command" }
-      });
-      (0, import_obsidian7.setIcon)(addCmdBtn, "plus");
-      addCmdBtn.onclick = async () => {
-        const id = `ffc-command-${Date.now()}`;
-        this.plugin.settings.commands.push({ id, name: "New Filtered Command", matchMode: "all", filters: [] });
-        await this.plugin.saveSettings();
-        this.plugin.registerFilterCommand(this.plugin.settings.commands[this.plugin.settings.commands.length - 1]);
-        this.display();
-      };
-      const cmdList = this.filteredCmdsSectionEl.createDiv({ cls: "setting-group ffc-item-list" });
-      if (this.plugin.settings.commands.length === 0) {
-        cmdList.createEl("p", { text: "No filtered commands yet. Select + to add one.", cls: "ffc-hint ffc-item-empty" });
-      } else {
-        for (let i = 0; i < this.plugin.settings.commands.length; i++) {
-          this.renderFilteredCommandRow(cmdList, i);
+  /** Route declarative `control` reads/writes through the plugin's own store. */
+  getControlValue(key) {
+    return this.plugin.settings[key];
+  }
+  setControlValue(key, value) {
+    this.plugin.settings[key] = value;
+    return this.plugin.saveSettings();
+  }
+  getSettingDefinitions() {
+    const s = this.plugin.settings;
+    return [
+      // ── General ─────────────────────────────────────────────────────────────
+      {
+        name: "Trigger key",
+        desc: 'Character that opens the inline note picker while editing (e.g. "@"). Leave blank to disable.',
+        render: (setting) => {
+          setting.addText((text) => text.setPlaceholder("E.g. @").setValue(s.triggerKey || "").onChange(async (value) => {
+            s.triggerKey = value.trim().slice(0, 1);
+            await this.plugin.saveSettings();
+          }));
         }
-      }
-      containerEl.createEl("hr", { cls: "ffc-divider" });
-    }
-    if (this.plugin.settings.filteredWidgetEnabled) {
-      this.filteredWidgetSectionEl = containerEl.createDiv();
-      new import_obsidian7.Setting(this.filteredWidgetSectionEl).setName("Filtered files widget").setHeading();
-      new import_obsidian7.Setting(this.filteredWidgetSectionEl).setName("Show ribbon icon").setDesc("Add a button to the left ribbon that opens the filtered files widget.").addToggle(
-        (toggle) => toggle.setValue(this.plugin.settings.filteredWidgetRibbon).onChange(async (value) => {
-          this.plugin.settings.filteredWidgetRibbon = value;
-          await this.plugin.saveSettings();
-          this.plugin.refreshWidgetRibbonIcon();
+      },
+      {
+        name: "Templates folder",
+        desc: "Folder holding your templates. Leave blank to auto-detect from the core Templates plugin.",
+        control: { type: "folder", key: "templatesFolder", placeholder: "Templates" }
+      },
+      {
+        name: "Fetch page title from URL",
+        desc: "When creating a note from a highlighted URL, fetch the linked page and use its title (makes a network request to that site).",
+        control: { type: "toggle", key: "fetchUrlTitles" }
+      },
+      {
+        name: "Filtered file commands",
+        desc: "Create palette commands that open a fuzzy file picker filtered by frontmatter.",
+        render: (setting) => {
+          setting.addToggle((toggle) => toggle.setValue(s.filteredCommandsEnabled).onChange(async (value) => {
+            s.filteredCommandsEnabled = value;
+            await this.plugin.saveSettings();
+            this.update();
+          }));
+        }
+      },
+      {
+        name: "Filtered files widget",
+        desc: "A sidebar panel that shows lists of files matching configurable filter rules.",
+        render: (setting) => {
+          setting.addToggle((toggle) => toggle.setValue(s.filteredWidgetEnabled).onChange(async (value) => {
+            s.filteredWidgetEnabled = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshWidgetRibbonIcon();
+            this.update();
+          }));
+        }
+      },
+      // ── Note types ─────────────────────────────────────────────────────────
+      {
+        type: "list",
+        heading: "Definitions",
+        emptyState: "No note types defined yet.",
+        addItem: {
+          name: "Add note type",
+          action: () => {
+            void this.addNoteType();
+          }
+        },
+        onReorder: (from, to) => {
+          const list = s.noteTypes;
+          const [moved] = list.splice(from, 1);
+          list.splice(to, 0, moved);
+          void this.plugin.saveSettings();
+          this.update();
+        },
+        onDelete: (index) => {
+          new NoteTypeDeleteModal(this.app, this.plugin, index, () => this.update()).open();
+        },
+        // Rows are `action` items, not `type: 'page'` — Obsidian's list renderer
+        // skips the delete/reorder affordances on page rows, so navigation to the
+        // sub-page is done by hand in `openNoteTypePage`.
+        items: s.noteTypes.map((obj) => {
+          const slugMismatch = obj.commandSlug !== nameToCommandSlug(obj.name);
+          const desc = [obj.description, slugMismatch ? "\u26A0 command ID no longer matches the name" : ""].filter(Boolean).join(" \xB7 ");
+          return {
+            name: obj.name || "Untitled note type",
+            desc: desc || void 0,
+            searchable: false,
+            action: (_el, index) => this.openNoteTypePage(index)
+          };
         })
-      );
-      new import_obsidian7.Setting(this.filteredWidgetSectionEl).setName("Open the widget").setDesc("Reveal the filtered files widget in the left sidebar.").addButton((btn) => btn.setButtonText("Open widget").setCta().onClick(() => {
-        void this.plugin.activateWidgetView();
-      }));
-      new import_obsidian7.Setting(this.filteredWidgetSectionEl).setName("Display name frontmatter key").setDesc('Show a frontmatter value instead of the filename in the widget. Enter the key you use (e.g. "title"). Leave blank to use the filename.').addText(
-        (text) => text.setPlaceholder("E.g. title").setValue(this.plugin.settings.ffwDisplayNameKey).onChange(async (v) => {
-          this.plugin.settings.ffwDisplayNameKey = v.trim();
-          await this.plugin.saveSettings();
-          this.plugin.refreshWidgetViews();
+      },
+      // ── Filtered file commands ─────────────────────────────────────────────
+      {
+        type: "list",
+        heading: "Filtered file commands",
+        visible: () => s.filteredCommandsEnabled,
+        emptyState: "No filtered commands defined yet.",
+        addItem: {
+          name: "Add filtered command",
+          action: () => {
+            void this.addFilteredCommand();
+          }
+        },
+        onReorder: (from, to) => {
+          const list = s.commands;
+          const [moved] = list.splice(from, 1);
+          list.splice(to, 0, moved);
+          void this.plugin.saveSettings();
+          this.update();
+        },
+        onDelete: (index) => {
+          new FilteredCommandDeleteModal(this.app, this.plugin, index, () => this.update()).open();
+        },
+        items: s.commands.map((cmd, i) => {
+          const n = cmd.filters.length;
+          const desc = `${n} filter${n === 1 ? "" : "s"}${cmd.fileTypes ? ` \xB7 ${cmd.fileTypes}` : ""}`;
+          return {
+            name: cmd.name || "Untitled command",
+            desc,
+            action: () => {
+              new FilteredCommandSettingsModal(this.app, this.plugin, i, () => this.update()).open();
+            }
+          };
         })
-      );
-      new import_obsidian7.Setting(this.filteredWidgetSectionEl).setName("Reset all filter sections").setDesc("Remove every filter section from the widget. This cannot be undone.").addButton((btn) => btn.setButtonText("Reset").setWarning().onClick(async () => {
-        this.plugin.settings.ffwSections = [];
-        await this.plugin.saveSettings();
-        this.plugin.refreshWidgetViews();
-      }));
-    }
-  }
-  // ── Filtered command compact row ────────────────────────────────────────────────
-  renderFilteredCommandRow(containerEl, index) {
-    const cmd = this.plugin.settings.commands[index];
-    const row = containerEl.createDiv({ cls: "ffc-item-row" });
-    row.onclick = (e) => {
-      if (!e.target.closest(".ffc-item-row-actions")) {
-        new FilteredCommandSettingsModal(this.app, this.plugin, index, () => this.display()).open();
+      },
+      // ── Filtered files widget ─────────────────────────────────────────────
+      {
+        type: "group",
+        heading: "Filtered files widget",
+        visible: () => s.filteredWidgetEnabled,
+        items: [
+          {
+            name: "Show ribbon icon",
+            desc: "Add a button to the left ribbon that opens the filtered files widget.",
+            render: (setting) => {
+              setting.addToggle((toggle) => toggle.setValue(s.filteredWidgetRibbon).onChange(async (value) => {
+                s.filteredWidgetRibbon = value;
+                await this.plugin.saveSettings();
+                this.plugin.refreshWidgetRibbonIcon();
+              }));
+            }
+          },
+          {
+            name: "Open the widget",
+            desc: "Reveal the filtered files widget in the left sidebar.",
+            action: () => {
+              void this.plugin.activateWidgetView();
+            }
+          },
+          {
+            name: "Display name frontmatter key",
+            desc: 'Show a frontmatter value instead of the filename in the widget (e.g. "title"). Leave blank to use the filename.',
+            render: (setting) => {
+              setting.addText((text) => text.setPlaceholder("E.g. title").setValue(s.ffwDisplayNameKey).onChange(async (value) => {
+                s.ffwDisplayNameKey = value.trim();
+                await this.plugin.saveSettings();
+                this.plugin.refreshWidgetViews();
+              }));
+            }
+          },
+          {
+            name: "Reset all filter sections",
+            desc: "Remove every filter section from the widget. This cannot be undone.",
+            render: (setting) => {
+              setting.addButton((btn) => btn.setButtonText("Reset").setDestructive().onClick(async () => {
+                s.ffwSections = [];
+                await this.plugin.saveSettings();
+                this.plugin.refreshWidgetViews();
+              }));
+            }
+          }
+        ]
       }
-    };
-    const info = row.createDiv({ cls: "ffc-item-row-info" });
-    info.createDiv({ text: cmd.name || "Unnamed", cls: "ffc-item-row-name" });
-    const filterCount = cmd.filters.length;
-    const desc = `${filterCount} filter${filterCount === 1 ? "" : "s"}${cmd.fileTypes ? ` \xB7 ${cmd.fileTypes}` : ""}`;
-    info.createDiv({ text: desc, cls: "ffc-item-row-desc" });
-    const actions = row.createDiv({ cls: "ffc-item-row-actions" });
-    const gearBtn = actions.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Edit settings" } });
-    (0, import_obsidian7.setIcon)(gearBtn, "settings");
-    gearBtn.onclick = () => {
-      new FilteredCommandSettingsModal(this.app, this.plugin, index, () => this.display()).open();
-    };
-    const trashBtn = actions.createEl("button", { cls: "clickable-icon ffc-btn-icon-danger", attr: { "aria-label": "Delete command" } });
-    (0, import_obsidian7.setIcon)(trashBtn, "trash-2");
-    trashBtn.onclick = () => {
-      new FilteredCommandDeleteModal(this.app, this.plugin, index, () => this.display()).open();
-    };
+    ];
   }
-  // ── Note type compact row ─────────────────────────────────────────────────────
-  renderNoteTypeRow(containerEl, index) {
-    const obj = this.plugin.settings.noteTypes[index];
-    const row = containerEl.createDiv({ cls: "ffc-item-row" });
-    row.onclick = (e) => {
-      if (!e.target.closest(".ffc-item-row-actions")) {
-        this.activeNoteType = index;
-        this.display();
-      }
-    };
-    const info = row.createDiv({ cls: "ffc-item-row-info" });
-    info.createDiv({ text: obj.name || "Unnamed", cls: "ffc-item-row-name" });
-    if (obj.description) {
-      info.createDiv({ text: obj.description, cls: "ffc-item-row-desc" });
+  /**
+   * Open a note type's editor as a settings sub-page. `app.setting.openPage` is
+   * the same call Obsidian's own list renderer makes for `type: 'page'` rows; we
+   * invoke it directly because our rows are `action` rows (see the note types
+   * list above).
+   */
+  openNoteTypePage(index) {
+    const settingModal = this.app.setting;
+    const page = new NoteTypeSettingsPage(this.plugin, index, () => this.update());
+    if (settingModal == null ? void 0 : settingModal.openPage) {
+      settingModal.openPage(page);
+    } else {
+      console.error("Note Types: could not open the note type sub-page (app.setting.openPage unavailable).");
     }
-    const actions = row.createDiv({ cls: "ffc-item-row-actions" });
-    const gearBtn = actions.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Edit settings" } });
-    (0, import_obsidian7.setIcon)(gearBtn, "settings");
-    gearBtn.onclick = () => {
-      this.activeNoteType = index;
-      this.display();
-    };
-    const trashBtn = actions.createEl("button", { cls: "clickable-icon ffc-btn-icon-danger", attr: { "aria-label": "Delete note type" } });
-    (0, import_obsidian7.setIcon)(trashBtn, "trash-2");
-    trashBtn.onclick = () => {
-      new NoteTypeDeleteModal(this.app, this.plugin, index, () => this.display()).open();
-    };
   }
-  // ── Note type sub-page ────────────────────────────────────────────────────────
-  renderNoteTypePage(containerEl, index) {
-    const obj = this.plugin.settings.noteTypes[index];
-    if (!obj) {
-      this.activeNoteType = null;
-      this.display();
-      return;
-    }
-    const header = containerEl.createDiv({ cls: "ffc-subpage-header" });
-    const backBtn = header.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Back" } });
-    (0, import_obsidian7.setIcon)(backBtn, "arrow-left");
-    backBtn.onclick = () => {
-      this.activeNoteType = null;
-      this.display();
-    };
-    const titleEl = header.createSpan({ text: obj.name || "Note type", cls: "ffc-subpage-title" });
-    const pageEl = containerEl.createDiv();
-    new NoteTypeSettingsPage(this.app, this.plugin, index, (title) => {
-      titleEl.textContent = title;
-    }).render(pageEl);
+  async addNoteType() {
+    const s = this.plugin.settings;
+    const id = `ffc-notetype-${Date.now()}`;
+    const takenSlugs = new Set(s.noteTypes.map((o) => o.commandSlug).filter(Boolean));
+    const baseSlug = nameToCommandSlug("New Note");
+    let newSlug = baseSlug;
+    let slugN = 2;
+    while (takenSlugs.has(newSlug))
+      newSlug = `${baseSlug}-${slugN++}`;
+    s.noteTypes.push({
+      id,
+      commandSlug: newSlug,
+      name: "New Note",
+      templatePath: "",
+      saveFolder: "",
+      fields: [],
+      matchFilters: [],
+      matchMode: "all",
+      enableFindCommand: false,
+      showInTriggerMenu: false,
+      previewFields: [],
+      canvasFields: []
+    });
+    await this.plugin.saveSettings();
+    this.plugin.registerNoteTypeCommand(s.noteTypes[s.noteTypes.length - 1]);
+    this.update();
+  }
+  async addFilteredCommand() {
+    const s = this.plugin.settings;
+    const id = `ffc-command-${Date.now()}`;
+    s.commands.push({ id, name: "New Filtered Command", matchMode: "all", filters: [] });
+    await this.plugin.saveSettings();
+    this.plugin.registerFilterCommand(s.commands[s.commands.length - 1]);
+    this.update();
   }
 };
 
 // src/utils/fetch-title.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 async function fetchPageTitle(url, timeoutMs = 8e3) {
   return Promise.race([
     extractTitle(url),
@@ -1129,7 +1181,7 @@ async function extractTitle(url) {
   var _a, _b, _c, _d, _e, _f, _g, _h;
   let res;
   try {
-    res = await (0, import_obsidian8.requestUrl)({ url, method: "GET", throw: false });
+    res = await (0, import_obsidian11.requestUrl)({ url, method: "GET", throw: false });
   } catch (e) {
     return null;
   }
@@ -1197,7 +1249,7 @@ function statusSvg(status) {
 }
 
 // src/utils/ffw-utils.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 var FFW_VIEW_TYPE = "filtered-files-widget-view";
 var FFW_FILTER_TYPE_LABELS = {
   tag: "Tag",
@@ -1309,7 +1361,7 @@ function ffwGetIconicIcon(app, file) {
 }
 function ffwSetIconEl(el, icon, color) {
   if (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(icon)) {
-    (0, import_obsidian9.setIcon)(el, icon);
+    (0, import_obsidian12.setIcon)(el, icon);
   } else {
     el.setText(icon);
     el.addClass("ffw-file-icon--emoji");
@@ -1338,7 +1390,7 @@ function ffwEvalTagFilter(cache, filter) {
   const tag = ffwNormalizeTag(filter.tag);
   if (!tag)
     return true;
-  const allTags = cache ? ((_a = (0, import_obsidian9.getAllTags)(cache)) != null ? _a : []).map(ffwNormalizeTag) : [];
+  const allTags = cache ? ((_a = (0, import_obsidian12.getAllTags)(cache)) != null ? _a : []).map(ffwNormalizeTag) : [];
   const has = allTags.includes(tag);
   return filter.include ? has : !has;
 }
@@ -1491,8 +1543,8 @@ function ffwGetSectionFiles(app, section) {
 }
 
 // src/ui/filtered-file-modal.ts
-var import_obsidian10 = require("obsidian");
-var FilteredFileModal = class extends import_obsidian10.FuzzySuggestModal {
+var import_obsidian13 = require("obsidian");
+var FilteredFileModal = class extends import_obsidian13.FuzzySuggestModal {
   constructor(app, files, typeName) {
     super(app);
     this.files = files;
@@ -1530,8 +1582,8 @@ var FilteredFileModal = class extends import_obsidian10.FuzzySuggestModal {
 };
 
 // src/ui/new-note-modal.ts
-var import_obsidian11 = require("obsidian");
-var NewNoteModal = class extends import_obsidian11.Modal {
+var import_obsidian14 = require("obsidian");
+var NewNoteModal = class extends import_obsidian14.Modal {
   constructor(app, noteType, onSubmit, initialTitle = "", urlSelection = "", titlePromise = null) {
     super(app);
     this.fieldValues = {};
@@ -1549,7 +1601,7 @@ var NewNoteModal = class extends import_obsidian11.Modal {
     const { contentEl } = this;
     contentEl.addClass("ffc-new-note-modal");
     contentEl.createEl("h2", { text: `New ${this.noteType.name}` });
-    new import_obsidian11.Setting(contentEl).setName("Title").addText((text) => {
+    new import_obsidian14.Setting(contentEl).setName("Title").addText((text) => {
       const basePlaceholder = `Enter ${this.noteType.name} title\u2026`;
       text.setPlaceholder(this.titlePromise ? "Fetching title\u2026" : basePlaceholder).setValue(this.titleValue).onChange((v) => {
         this.titleValue = v;
@@ -1579,7 +1631,7 @@ var NewNoteModal = class extends import_obsidian11.Modal {
         });
       }
     });
-    const descSetting = new import_obsidian11.Setting(contentEl).setName("Description").setDesc("Added to the body of the created page").addTextArea((ta) => {
+    const descSetting = new import_obsidian14.Setting(contentEl).setName("Description").setDesc("Added to the body of the created page").addTextArea((ta) => {
       ta.setPlaceholder("Optional description\u2026").onChange((v) => {
         this.descriptionValue = v;
       });
@@ -1589,12 +1641,12 @@ var NewNoteModal = class extends import_obsidian11.Modal {
       });
     });
     renderFieldInputs(contentEl, this.app, this.noteType, this.fieldValues, () => this.submit(), descSetting.settingEl);
-    new import_obsidian11.Setting(contentEl).addButton((btn) => btn.setButtonText("Create").setCta().onClick(() => this.submit())).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()));
+    new import_obsidian14.Setting(contentEl).addButton((btn) => btn.setButtonText("Create").setCta().onClick(() => this.submit())).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()));
   }
   submit() {
     const title = this.titleValue.trim();
     if (!title) {
-      new import_obsidian11.Notice("Please enter a title.");
+      new import_obsidian14.Notice("Please enter a title.");
       return;
     }
     this.close();
@@ -1606,8 +1658,8 @@ var NewNoteModal = class extends import_obsidian11.Modal {
 };
 
 // src/ui/combined-new-note-modal.ts
-var import_obsidian12 = require("obsidian");
-var CombinedNewNoteModal = class extends import_obsidian12.Modal {
+var import_obsidian15 = require("obsidian");
+var CombinedNewNoteModal = class extends import_obsidian15.Modal {
   constructor(app, noteTypes, onSubmit, initialTitle = "", urlSelection = "", titlePromise = null) {
     super(app);
     this.titleValue = "";
@@ -1638,7 +1690,7 @@ var CombinedNewNoteModal = class extends import_obsidian12.Modal {
     contentEl.addClass("ffc-new-note-modal");
     contentEl.createEl("h2", { text: "New note" });
     let descSettingEl = null;
-    new import_obsidian12.Setting(contentEl).setName("Type").addDropdown((dd) => {
+    new import_obsidian15.Setting(contentEl).setName("Type").addDropdown((dd) => {
       for (const obj of this.noteTypes)
         dd.addOption(obj.id, obj.name);
       dd.setValue(this.selectedType.id);
@@ -1650,7 +1702,7 @@ var CombinedNewNoteModal = class extends import_obsidian12.Modal {
         renderFieldInputs(contentEl, this.app, this.selectedType, this.fieldValues, () => this.submit(), descSettingEl);
       });
     });
-    new import_obsidian12.Setting(contentEl).setName("Title").addText((text) => {
+    new import_obsidian15.Setting(contentEl).setName("Title").addText((text) => {
       text.setPlaceholder(this.titlePromise ? "Fetching title\u2026" : "Enter title\u2026").setValue(this.initialTitle).onChange((v) => {
         this.titleValue = v;
         this.titleTouched = true;
@@ -1680,7 +1732,7 @@ var CombinedNewNoteModal = class extends import_obsidian12.Modal {
         });
       }
     });
-    const descSetting = new import_obsidian12.Setting(contentEl).setName("Description").setDesc("Added to the body of the created page").addTextArea((ta) => {
+    const descSetting = new import_obsidian15.Setting(contentEl).setName("Description").setDesc("Added to the body of the created page").addTextArea((ta) => {
       ta.setPlaceholder("Optional description\u2026").onChange((v) => {
         this.descriptionValue = v;
       });
@@ -1691,12 +1743,12 @@ var CombinedNewNoteModal = class extends import_obsidian12.Modal {
     });
     descSettingEl = descSetting.settingEl;
     renderFieldInputs(contentEl, this.app, this.selectedType, this.fieldValues, () => this.submit(), descSettingEl);
-    new import_obsidian12.Setting(contentEl).addButton((btn) => btn.setButtonText("Create").setCta().onClick(() => this.submit())).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()));
+    new import_obsidian15.Setting(contentEl).addButton((btn) => btn.setButtonText("Create").setCta().onClick(() => this.submit())).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()));
   }
   submit() {
     const title = this.titleValue.trim();
     if (!title) {
-      new import_obsidian12.Notice("Please enter a title.");
+      new import_obsidian15.Notice("Please enter a title.");
       return;
     }
     this.close();
@@ -1708,8 +1760,8 @@ var CombinedNewNoteModal = class extends import_obsidian12.Modal {
 };
 
 // src/ui/note-type-suggest.ts
-var import_obsidian13 = require("obsidian");
-var NoteTypeSuggest = class extends import_obsidian13.EditorSuggest {
+var import_obsidian16 = require("obsidian");
+var NoteTypeSuggest = class extends import_obsidian16.EditorSuggest {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -2031,8 +2083,8 @@ var NotePreviewPopup = class {
 };
 
 // src/ui/canvas-note-switcher.ts
-var import_obsidian14 = require("obsidian");
-var CanvasNoteSwitcher = class extends import_obsidian14.FuzzySuggestModal {
+var import_obsidian17 = require("obsidian");
+var CanvasNoteSwitcher = class extends import_obsidian17.FuzzySuggestModal {
   constructor(app, plugin, canvas, dropPos) {
     super(app);
     this.plugin = plugin;
@@ -2124,9 +2176,9 @@ ${label}: ${displayVal}`;
       (_g = (_f = this.canvas).deselectAll) == null ? void 0 : _g.call(_f);
       if (node)
         (_i = (_h = this.canvas).selectOnly) == null ? void 0 : _i.call(_h, node);
-      new import_obsidian14.Notice(`Added "${title}" to canvas`);
+      new import_obsidian17.Notice(`Added "${title}" to canvas`);
     } catch (err) {
-      new import_obsidian14.Notice(`Could not add card to canvas: ${err.message}`);
+      new import_obsidian17.Notice(`Could not add card to canvas: ${err.message}`);
     }
   }
   _getViewportCenter() {
@@ -2153,11 +2205,11 @@ ${label}: ${displayVal}`;
 };
 
 // src/views/filtered-files-widget.ts
-var import_obsidian16 = require("obsidian");
+var import_obsidian19 = require("obsidian");
 
 // src/views/ffw-section-edit-modal.ts
-var import_obsidian15 = require("obsidian");
-var FfwSectionEditModal = class extends import_obsidian15.Modal {
+var import_obsidian18 = require("obsidian");
+var FfwSectionEditModal = class extends import_obsidian18.Modal {
   constructor(app, section, onSave) {
     super(app);
     this.filtersContainer = null;
@@ -2170,7 +2222,7 @@ var FfwSectionEditModal = class extends import_obsidian15.Modal {
     const { contentEl, titleEl } = this;
     contentEl.addClass("ffw-modal");
     titleEl.setText(this.isNew ? "Add filter section" : "Edit filter section");
-    new import_obsidian15.Setting(contentEl).setName("Title").setDesc("Shown as the section header in the widget.").addText(
+    new import_obsidian18.Setting(contentEl).setName("Title").setDesc("Shown as the section header in the widget.").addText(
       (text) => text.setPlaceholder("Active projects").setValue(this.working.title).onChange((v) => {
         this.working.title = v;
       })
@@ -2181,13 +2233,13 @@ var FfwSectionEditModal = class extends import_obsidian15.Modal {
     this.renderFilterRows();
     const addRow = contentEl.createDiv({ cls: "ffw-add-filter-row" });
     for (const type of ["tag", "frontmatter", "path", "name"]) {
-      new import_obsidian15.ButtonComponent(addRow).setButtonText(`+ ${FFW_FILTER_TYPE_LABELS[type]}`).onClick(() => {
+      new import_obsidian18.ButtonComponent(addRow).setButtonText(`+ ${FFW_FILTER_TYPE_LABELS[type]}`).onClick(() => {
         this.working.filters.push(ffwDefaultFilter(type));
         this.renderFilterRows();
       });
     }
     contentEl.createEl("h3", { text: "Sort" });
-    new import_obsidian15.Setting(contentEl).setName("Sort by").addDropdown((dd) => {
+    new import_obsidian18.Setting(contentEl).setName("Sort by").addDropdown((dd) => {
       for (const opt of FFW_SORT_OPTIONS)
         dd.addOption(opt.value, opt.label);
       dd.setValue(this.working.sort.field).onChange((v) => {
@@ -2196,7 +2248,7 @@ var FfwSectionEditModal = class extends import_obsidian15.Modal {
       });
     });
     this.frontmatterKeyContainer = contentEl.createDiv();
-    new import_obsidian15.Setting(this.frontmatterKeyContainer).setName("Frontmatter sort key").setDesc("Required when sorting by a frontmatter field.").addText(
+    new import_obsidian18.Setting(this.frontmatterKeyContainer).setName("Frontmatter sort key").setDesc("Required when sorting by a frontmatter field.").addText(
       (text) => {
         var _a;
         return text.setPlaceholder("Due").setValue((_a = this.working.sort.frontmatterKey) != null ? _a : "").onChange((v) => {
@@ -2205,15 +2257,15 @@ var FfwSectionEditModal = class extends import_obsidian15.Modal {
       }
     );
     this.updateFrontmatterKeyVisibility();
-    new import_obsidian15.Setting(contentEl).setName("Result limit").setDesc("Maximum number of files to show. 0 means unlimited.").addText(
+    new import_obsidian18.Setting(contentEl).setName("Result limit").setDesc("Maximum number of files to show. 0 means unlimited.").addText(
       (text) => text.setPlaceholder("0").setValue(String(this.working.maxResults)).onChange((v) => {
         const n = parseInt(v, 10);
         this.working.maxResults = Number.isFinite(n) && n > 0 ? n : 0;
       })
     );
     const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
-    new import_obsidian15.ButtonComponent(btnRow).setButtonText("Cancel").onClick(() => this.close());
-    new import_obsidian15.ButtonComponent(btnRow).setButtonText(this.isNew ? "Add section" : "Save").setCta().onClick(() => this.handleSave());
+    new import_obsidian18.ButtonComponent(btnRow).setButtonText("Cancel").onClick(() => this.close());
+    new import_obsidian18.ButtonComponent(btnRow).setButtonText(this.isNew ? "Add section" : "Save").setCta().onClick(() => this.handleSave());
   }
   onClose() {
     this.contentEl.empty();
@@ -2359,15 +2411,15 @@ var FfwSectionEditModal = class extends import_obsidian15.Modal {
   handleSave() {
     const title = this.working.title.trim();
     if (!title) {
-      new import_obsidian15.Notice("Please enter a title for the section.");
+      new import_obsidian18.Notice("Please enter a title for the section.");
       return;
     }
     if (this.working.filters.length === 0) {
-      new import_obsidian15.Notice("Add at least one filter to the section.");
+      new import_obsidian18.Notice("Add at least one filter to the section.");
       return;
     }
     if ((this.working.sort.field === "frontmatter-asc" || this.working.sort.field === "frontmatter-desc") && !this.working.sort.frontmatterKey) {
-      new import_obsidian15.Notice("Please specify a frontmatter key to sort by.");
+      new import_obsidian18.Notice("Please specify a frontmatter key to sort by.");
       return;
     }
     this.working.title = title;
@@ -2377,7 +2429,7 @@ var FfwSectionEditModal = class extends import_obsidian15.Modal {
 };
 
 // src/views/filtered-files-widget.ts
-var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
+var FilteredFilesWidgetView = class extends import_obsidian19.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.query = "";
@@ -2385,7 +2437,7 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
     this.sectionsEl = null;
     this.dragSourceId = null;
     this.plugin = plugin;
-    this.refresh = (0, import_obsidian16.debounce)(() => this.render(), 80, true);
+    this.refresh = (0, import_obsidian19.debounce)(() => this.render(), 80, true);
   }
   getViewType() {
     return FFW_VIEW_TYPE;
@@ -2421,7 +2473,7 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
   }
   renderHeader(el) {
     const row = el.createDiv({ cls: "ffw-header" }).createDiv({ cls: "ffw-search-row" });
-    const search = new import_obsidian16.SearchComponent(row);
+    const search = new import_obsidian19.SearchComponent(row);
     search.setPlaceholder("Filter...");
     search.setValue(this.query);
     search.onChange((v) => {
@@ -2429,7 +2481,7 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
       this.renderSections();
     });
     const addBtn = row.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Add filter section" } });
-    (0, import_obsidian16.setIcon)(addBtn, "plus");
+    (0, import_obsidian19.setIcon)(addBtn, "plus");
     addBtn.addEventListener("click", () => this.openAddModal());
   }
   renderSections() {
@@ -2460,10 +2512,10 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
     sectionEl.addEventListener("dragend", () => this.clearDragState());
     const header = sectionEl.createDiv({ cls: "ffw-section-header" });
     const dragHandle = header.createSpan({ cls: "ffw-drag-handle" });
-    (0, import_obsidian16.setIcon)(dragHandle, "grip-vertical");
+    (0, import_obsidian19.setIcon)(dragHandle, "grip-vertical");
     dragHandle.setAttr("aria-label", "Drag to reorder");
     const collapseToggle = header.createSpan({ cls: "ffw-collapse-toggle" });
-    (0, import_obsidian16.setIcon)(collapseToggle, section.collapsed ? "chevron-right" : "chevron-down");
+    (0, import_obsidian19.setIcon)(collapseToggle, section.collapsed ? "chevron-right" : "chevron-down");
     collapseToggle.setAttr("aria-label", section.collapsed ? "Expand section" : "Collapse section");
     collapseToggle.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -2505,7 +2557,7 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
     if (iconicIcon == null ? void 0 : iconicIcon.icon) {
       ffwSetIconEl(iconEl, iconicIcon.icon, iconicIcon.color);
     } else {
-      (0, import_obsidian16.setIcon)(iconEl, "file-text");
+      (0, import_obsidian19.setIcon)(iconEl, "file-text");
     }
     const labelEl = row.createDiv({ cls: "ffw-file-label" });
     const key = this.plugin.settings.ffwDisplayNameKey;
@@ -2520,7 +2572,7 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
     });
     row.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      const menu = new import_obsidian16.Menu();
+      const menu = new import_obsidian19.Menu();
       menu.addItem((item) => item.setTitle("Open").setIcon("file-text").onClick(() => this.app.workspace.openLinkText(file.path, "", false)));
       menu.addItem((item) => item.setTitle("Open in new tab").setIcon("file-plus").onClick(() => this.app.workspace.openLinkText(file.path, "", true)));
       menu.addItem((item) => item.setTitle("Reveal in file explorer").setIcon("folder").onClick(() => {
@@ -2534,14 +2586,14 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
           } catch (e2) {
           }
         }
-        new import_obsidian16.Notice("Could not reveal file in the file explorer.");
+        new import_obsidian19.Notice("Could not reveal file in the file explorer.");
       }));
       menu.showAtMouseEvent(e);
     });
   }
   addIconButton(el, icon, label, onClick) {
     const btn = el.createEl("button", { cls: "clickable-icon" });
-    (0, import_obsidian16.setIcon)(btn, icon);
+    (0, import_obsidian19.setIcon)(btn, icon);
     btn.setAttr("aria-label", label);
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -2549,7 +2601,7 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
     });
   }
   openSectionMenu(section, e) {
-    const menu = new import_obsidian16.Menu();
+    const menu = new import_obsidian19.Menu();
     menu.addItem((item) => item.setTitle("Edit").setIcon("pencil").onClick(() => this.openEditModal(section)));
     menu.addItem((item) => item.setTitle("Duplicate").setIcon("copy").onClick(() => this.duplicateSection(section)));
     menu.addSeparator();
@@ -2598,7 +2650,7 @@ var FilteredFilesWidgetView = class extends import_obsidian16.ItemView {
     await this.plugin.saveSettings();
     this.renderSections();
     if (removed)
-      new import_obsidian16.Notice(`Removed "${removed.title}"`);
+      new import_obsidian19.Notice(`Removed "${removed.title}"`);
   }
   // ── Drag-and-drop reorder ─────────────────────────────────────────────────────
   handleDragStart(e, id) {
@@ -2750,7 +2802,7 @@ function buildNoteLinkViewPlugin(ffcPlugin) {
 }
 
 // src/main.ts
-var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
+var FilteredFileCommandsPlugin = class extends import_obsidian20.Plugin {
   constructor() {
     super(...arguments);
     this.commandRefs = {};
@@ -2852,7 +2904,7 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
               subItem.setTitle(noteType.name).onClick(() => {
                 const current = this.settings.noteTypes.find((o) => o.id === noteType.id);
                 if (!current) {
-                  new import_obsidian17.Notice("Note type not found. Try reloading.");
+                  new import_obsidian20.Notice("Note type not found. Try reloading.");
                   return;
                 }
                 const selIsUrl = isUrl(selection);
@@ -2906,7 +2958,7 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
     });
     btn.setAttribute("aria-label", "Add note card");
     btn.setAttribute("data-tooltip-position", "top");
-    (0, import_obsidian17.setIcon)(btn, "shapes");
+    (0, import_obsidian20.setIcon)(btn, "shapes");
     const wrapperEl = (_c = (_b = canvas.wrapperEl) != null ? _b : canvas.canvasEl) != null ? _c : container;
     btn.addEventListener("mousedown", (e) => {
       if (e.button !== 0)
@@ -3026,12 +3078,12 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
       callback: () => {
         const current = this.settings.commands.find((c) => c.id === cmd.id);
         if (!current) {
-          new import_obsidian17.Notice("Note Types: Command not found. Try reloading.");
+          new import_obsidian20.Notice("Note Types: Command not found. Try reloading.");
           return;
         }
         const files = this.getFilteredFiles(current);
         if (files.length === 0) {
-          new import_obsidian17.Notice("Note Types: No files match the current filters.");
+          new import_obsidian20.Notice("Note Types: No files match the current filters.");
           return;
         }
         new FilteredFileModal(this.app, files).open();
@@ -3105,7 +3157,7 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
       callback: () => {
         const current = this.settings.noteTypes.find((o) => o.id === noteType.id);
         if (!current) {
-          new import_obsidian17.Notice("Note type not found. Try reloading.");
+          new import_obsidian20.Notice("Note type not found. Try reloading.");
           return;
         }
         new NewNoteModal(
@@ -3128,12 +3180,12 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
       callback: () => {
         const current = this.settings.noteTypes.find((o) => o.id === noteType.id);
         if (!current) {
-          new import_obsidian17.Notice("Note Types: Note type not found. Try reloading.");
+          new import_obsidian20.Notice("Note Types: Note type not found. Try reloading.");
           return;
         }
         const files = this.getNoteTypeFiles(current);
         if (files.length === 0) {
-          new import_obsidian17.Notice("Note Types: No files match this note type.");
+          new import_obsidian20.Notice("Note Types: No files match this note type.");
           return;
         }
         new FilteredFileModal(this.app, files, current.name).open();
@@ -3149,7 +3201,7 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
       callback: () => {
         const types = this.settings.noteTypes;
         if (types.length === 0) {
-          new import_obsidian17.Notice("No note types defined. Add one in the Note Types settings.");
+          new import_obsidian20.Notice("No note types defined. Add one in the Note Types settings.");
           return;
         }
         if (types.length === 1) {
@@ -3174,7 +3226,7 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
         var _a, _b;
         const types = this.settings.noteTypes;
         if (types.length === 0) {
-          new import_obsidian17.Notice("No note types defined. Add one in the Note Types settings.");
+          new import_obsidian20.Notice("No note types defined. Add one in the Note Types settings.");
           return;
         }
         const selection = (_b = (_a = editor.getSelection()) == null ? void 0 : _a.trim()) != null ? _b : "";
@@ -3208,16 +3260,16 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
     const saveFolder = (_b = (_a = noteType.saveFolder) == null ? void 0 : _a.trim()) != null ? _b : "";
     const filePath = saveFolder ? `${saveFolder}/${title}.md` : `${title}.md`;
     if (this.app.vault.getAbstractFileByPath(filePath)) {
-      new import_obsidian17.Notice(`A file named "${title}" already exists at that location.`);
+      new import_obsidian20.Notice(`A file named "${title}" already exists at that location.`);
       return;
     }
     let content = "";
     if (noteType.templatePath) {
       const tplFile = this.app.vault.getAbstractFileByPath(noteType.templatePath);
-      if (tplFile instanceof import_obsidian17.TFile) {
+      if (tplFile instanceof import_obsidian20.TFile) {
         content = await this.app.vault.read(tplFile);
       } else {
-        new import_obsidian17.Notice(`Template not found: ${noteType.templatePath}`);
+        new import_obsidian20.Notice(`Template not found: ${noteType.templatePath}`);
       }
     }
     const now = new Date();
@@ -3234,7 +3286,7 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
     }
     try {
       const newFile = await this.app.vault.create(filePath, content);
-      const notice = new import_obsidian17.Notice("", 6e3);
+      const notice = new import_obsidian20.Notice("", 6e3);
       const frag = notice.messageEl.createSpan();
       frag.appendText("Created: ");
       const link = frag.createEl("a", { text: title, href: "#", cls: "ffc-notice-link" });
@@ -3244,7 +3296,7 @@ var FilteredFileCommandsPlugin = class extends import_obsidian17.Plugin {
         notice.hide();
       });
     } catch (err) {
-      new import_obsidian17.Notice(`Failed to create file: ${err.message}`);
+      new import_obsidian20.Notice(`Failed to create file: ${err.message}`);
     }
   }
   injectFieldsIntoContent(content, noteType, fieldValues) {

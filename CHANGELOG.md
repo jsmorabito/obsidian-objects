@@ -5,6 +5,23 @@ All notable changes to this plugin are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0]
+
+### Changed
+
+- **Requires Obsidian 1.13.1 or newer.** The settings tab was rebuilt on
+  Obsidian's declarative settings API (`getSettingDefinitions()`), which is only
+  available from 1.13. The imperative `display()` implementation has been
+  removed.
+- The settings tab is now assembled from setting definitions rather than
+  hand-built DOM. Sections use standard headings, the note types and filtered
+  file commands lists use the built-in add / delete / drag-to-reorder
+  affordances, and each note type opens as a proper settings sub-page. Settings
+  are searchable from the settings-window search box.
+- Detection filters and creation / preview / canvas fields on a note type's
+  sub-page are now edited in a modal (one entry per row with an edit button)
+  instead of inline multi-control rows, per the Obsidian settings style guide.
+
 ## [1.6.0]
 
 ### Added

@@ -1,4 +1,5 @@
-import { App, PluginSettingTab, Setting, setIcon } from 'obsidian';
+import { App, PluginSettingTab } from 'obsidian';
+import type { SettingDefinitionItem } from 'obsidian';
 import type { FilteredFileCommandsPlugin } from './main.ts';
 import { PluginSettings } from './types.ts';
 import { NoteTypeSettingsPage } from './ui/note-type-settings-page.ts';
@@ -28,297 +29,236 @@ export class MyPluginSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  private filteredCmdsSectionEl?: HTMLElement;
-  private filteredWidgetSectionEl?: HTMLElement;
-  private activeNoteType: number | null = null;
+  /** Route declarative `control` reads/writes through the plugin's own store. */
+  getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+  }
 
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.addClass('ffc-settings');
-    this.filteredCmdsSectionEl = undefined;
-    this.filteredWidgetSectionEl = undefined;
+  setControlValue(key: string, value: unknown): Promise<void> {
+    (this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+    return this.plugin.saveSettings();
+  }
 
-    if (this.activeNoteType !== null) {
-      this.renderNoteTypePage(containerEl, this.activeNoteType);
-      return;
-    }
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    const s = this.plugin.settings;
 
-    new Setting(containerEl)
-      .setName('Trigger key')
-      .setDesc('Character that opens the inline note picker while editing (e.g. "@"). Leave blank to disable.')
-      .addText((text) =>
-        text
-          .setPlaceholder('E.g. @')
-          .setValue(this.plugin.settings.triggerKey || '')
-          .onChange(async (value) => {
-            this.plugin.settings.triggerKey = value.trim().slice(0, 1);
-            await this.plugin.saveSettings();
-          })
-      );
+    return [
+      // ── General ─────────────────────────────────────────────────────────────
+      {
+        name: 'Trigger key',
+        desc: 'Character that opens the inline note picker while editing (e.g. "@"). Leave blank to disable.',
+        render: (setting) => {
+          setting.addText((text) => text
+            .setPlaceholder('E.g. @')
+            .setValue(s.triggerKey || '')
+            .onChange(async (value) => {
+              s.triggerKey = value.trim().slice(0, 1);
+              await this.plugin.saveSettings();
+            }));
+        },
+      },
+      {
+        name: 'Templates folder',
+        desc: 'Folder holding your templates. Leave blank to auto-detect from the core Templates plugin.',
+        control: { type: 'folder', key: 'templatesFolder', placeholder: 'Templates' },
+      },
+      {
+        name: 'Fetch page title from URL',
+        desc: 'When creating a note from a highlighted URL, fetch the linked page and use its title (makes a network request to that site).',
+        control: { type: 'toggle', key: 'fetchUrlTitles' },
+      },
+      {
+        name: 'Filtered file commands',
+        desc: 'Create palette commands that open a fuzzy file picker filtered by frontmatter.',
+        render: (setting) => {
+          setting.addToggle((toggle) => toggle
+            .setValue(s.filteredCommandsEnabled)
+            .onChange(async (value) => {
+              s.filteredCommandsEnabled = value;
+              await this.plugin.saveSettings();
+              this.update();
+            }));
+        },
+      },
+      {
+        name: 'Filtered files widget',
+        desc: 'A sidebar panel that shows lists of files matching configurable filter rules.',
+        render: (setting) => {
+          setting.addToggle((toggle) => toggle
+            .setValue(s.filteredWidgetEnabled)
+            .onChange(async (value) => {
+              s.filteredWidgetEnabled = value;
+              await this.plugin.saveSettings();
+              this.plugin.refreshWidgetRibbonIcon();
+              this.update();
+            }));
+        },
+      },
 
-    new Setting(containerEl)
-      .setName('Templates folder')
-      .setDesc('Path to your templates folder (e.g. "Templates"). Leave blank to auto-detect from the core Templates plugin.')
-      .addText((text) =>
-        text.setPlaceholder('Templates').setValue(this.plugin.settings.templatesFolder || '')
-          .onChange(async (value) => {
-            this.plugin.settings.templatesFolder = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
+      // ── Note types ─────────────────────────────────────────────────────────
+      {
+        type: 'list',
+        heading: 'Definitions',
+        emptyState: 'No note types defined yet.',
+        addItem: {
+          name: 'Add note type',
+          action: () => { void this.addNoteType(); },
+        },
+        onReorder: (from, to) => {
+          const list = s.noteTypes;
+          const [moved] = list.splice(from, 1);
+          list.splice(to, 0, moved);
+          void this.plugin.saveSettings();
+          this.update();
+        },
+        onDelete: (index) => {
+          new NoteTypeDeleteModal(this.app, this.plugin, index, () => this.update()).open();
+        },
+        // Rows are `action` items, not `type: 'page'` — Obsidian's list renderer
+        // skips the delete/reorder affordances on page rows, so navigation to the
+        // sub-page is done by hand in `openNoteTypePage`.
+        items: s.noteTypes.map((obj) => {
+          const slugMismatch = obj.commandSlug !== nameToCommandSlug(obj.name);
+          const desc = [obj.description, slugMismatch ? '⚠ command ID no longer matches the name' : '']
+            .filter(Boolean).join(' · ');
+          return {
+            name: obj.name || 'Untitled note type',
+            desc: desc || undefined,
+            searchable: false,
+            action: (_el: HTMLElement, index: number) => this.openNoteTypePage(index),
+          };
+        }),
+      },
 
-    new Setting(containerEl)
-      .setName('Fetch page title from URL')
-      .setDesc('When you create a note from a highlighted URL, fetch the linked page and use its title as the note title. This makes a network request to the linked site. Off by default.')
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.fetchUrlTitles)
-          .onChange(async (value) => {
-            this.plugin.settings.fetchUrlTitles = value;
-            await this.plugin.saveSettings();
-          })
-      );
+      // ── Filtered file commands ─────────────────────────────────────────────
+      {
+        type: 'list',
+        heading: 'Filtered file commands',
+        visible: () => s.filteredCommandsEnabled,
+        emptyState: 'No filtered commands defined yet.',
+        addItem: {
+          name: 'Add filtered command',
+          action: () => { void this.addFilteredCommand(); },
+        },
+        onReorder: (from, to) => {
+          const list = s.commands;
+          const [moved] = list.splice(from, 1);
+          list.splice(to, 0, moved);
+          void this.plugin.saveSettings();
+          this.update();
+        },
+        onDelete: (index) => {
+          new FilteredCommandDeleteModal(this.app, this.plugin, index, () => this.update()).open();
+        },
+        items: s.commands.map((cmd, i) => {
+          const n = cmd.filters.length;
+          const desc = `${n} filter${n === 1 ? '' : 's'}${cmd.fileTypes ? ` · ${cmd.fileTypes}` : ''}`;
+          return {
+            name: cmd.name || 'Untitled command',
+            desc,
+            action: () => {
+              new FilteredCommandSettingsModal(this.app, this.plugin, i, () => this.update()).open();
+            },
+          };
+        }),
+      },
 
-    const filteredCmdsSetting = new Setting(containerEl)
-      .setName('Filtered file commands')
-      .setDesc('Create palette commands that open a fuzzy file picker filtered by frontmatter.');
-    if (this.plugin.settings.filteredCommandsEnabled) {
-      filteredCmdsSetting.addExtraButton((btn) =>
-        btn.setIcon('arrow-down').setTooltip('Jump to filtered file commands').onClick(() => {
-          this.filteredCmdsSectionEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        })
-      );
-    }
-    filteredCmdsSetting.addToggle((toggle) =>
-      toggle
-        .setValue(this.plugin.settings.filteredCommandsEnabled)
-        .onChange(async (value) => {
-          this.plugin.settings.filteredCommandsEnabled = value;
-          await this.plugin.saveSettings();
-          this.display();
-        })
-    );
+      // ── Filtered files widget ─────────────────────────────────────────────
+      {
+        type: 'group',
+        heading: 'Filtered files widget',
+        visible: () => s.filteredWidgetEnabled,
+        items: [
+          {
+            name: 'Show ribbon icon',
+            desc: 'Add a button to the left ribbon that opens the filtered files widget.',
+            render: (setting) => {
+              setting.addToggle((toggle) => toggle
+                .setValue(s.filteredWidgetRibbon)
+                .onChange(async (value) => {
+                  s.filteredWidgetRibbon = value;
+                  await this.plugin.saveSettings();
+                  this.plugin.refreshWidgetRibbonIcon();
+                }));
+            },
+          },
+          {
+            name: 'Open the widget',
+            desc: 'Reveal the filtered files widget in the left sidebar.',
+            action: () => { void this.plugin.activateWidgetView(); },
+          },
+          {
+            name: 'Display name frontmatter key',
+            desc: 'Show a frontmatter value instead of the filename in the widget (e.g. "title"). Leave blank to use the filename.',
+            render: (setting) => {
+              setting.addText((text) => text
+                .setPlaceholder('E.g. title')
+                .setValue(s.ffwDisplayNameKey)
+                .onChange(async (value) => {
+                  s.ffwDisplayNameKey = value.trim();
+                  await this.plugin.saveSettings();
+                  this.plugin.refreshWidgetViews();
+                }));
+            },
+          },
+          {
+            name: 'Reset all filter sections',
+            desc: 'Remove every filter section from the widget. This cannot be undone.',
+            render: (setting) => {
+              setting.addButton((btn) => btn
+                .setButtonText('Reset')
+                .setDestructive()
+                .onClick(async () => {
+                  s.ffwSections = [];
+                  await this.plugin.saveSettings();
+                  this.plugin.refreshWidgetViews();
+                }));
+            },
+          },
+        ],
+      },
+    ];
+  }
 
-    const filteredWidgetSetting = new Setting(containerEl)
-      .setName('Filtered files widget')
-      .setDesc('A sidebar panel that shows lists of files matching configurable filter rules.');
-    if (this.plugin.settings.filteredWidgetEnabled) {
-      filteredWidgetSetting.addExtraButton((btn) =>
-        btn.setIcon('arrow-down').setTooltip('Jump to filtered files widget').onClick(() => {
-          this.filteredWidgetSectionEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        })
-      );
-    }
-    filteredWidgetSetting.addToggle((toggle) =>
-      toggle
-        .setValue(this.plugin.settings.filteredWidgetEnabled)
-        .onChange(async (value) => {
-          this.plugin.settings.filteredWidgetEnabled = value;
-          await this.plugin.saveSettings();
-          this.plugin.refreshWidgetRibbonIcon();
-          this.display();
-        })
-    );
-
-    containerEl.createEl('hr', { cls: 'ffc-divider' });
-
-    // ── Note Types ────────────────────────────────────────────────────────────
-    const objTypesHeader = containerEl.createDiv({ cls: 'ffc-section-header' });
-    new Setting(objTypesHeader).setName('Definitions').setHeading();
-    const addObjTypeBtn = objTypesHeader.createEl('button', {
-      cls: 'clickable-icon ffc-btn-add',
-      attr: { title: 'Add note type', 'aria-label': 'Add note type' },
-    });
-    setIcon(addObjTypeBtn, 'plus');
-    addObjTypeBtn.onclick = async () => {
-      const id          = `ffc-notetype-${Date.now()}`;
-      const takenSlugs  = new Set(this.plugin.settings.noteTypes.map((o) => o.commandSlug).filter(Boolean));
-      const baseSlug    = nameToCommandSlug('New Note');
-      let newSlug = baseSlug; let slugN = 2;
-      while (takenSlugs.has(newSlug)) newSlug = `${baseSlug}-${slugN++}`;
-      this.plugin.settings.noteTypes.push({
-        id, commandSlug: newSlug, name: 'New Note', templatePath: '', saveFolder: '',
-        fields: [], matchFilters: [], matchMode: 'all', enableFindCommand: false,
-        showInTriggerMenu: false, previewFields: [], canvasFields: [],
-      });
-      await this.plugin.saveSettings();
-      this.plugin.registerNoteTypeCommand(this.plugin.settings.noteTypes[this.plugin.settings.noteTypes.length - 1]);
-      this.display();
-    };
-
-    const objTypesList = containerEl.createDiv({ cls: 'setting-group ffc-item-list' });
-    if (this.plugin.settings.noteTypes.length === 0) {
-      objTypesList.createEl('p', { text: 'No note types yet. Select + to add one.', cls: 'ffc-hint ffc-item-empty' });
+  /**
+   * Open a note type's editor as a settings sub-page. `app.setting.openPage` is
+   * the same call Obsidian's own list renderer makes for `type: 'page'` rows; we
+   * invoke it directly because our rows are `action` rows (see the note types
+   * list above).
+   */
+  private openNoteTypePage(index: number): void {
+    const settingModal = (this.app as unknown as { setting?: { openPage?: (page: unknown) => void } }).setting;
+    const page = new NoteTypeSettingsPage(this.plugin, index, () => this.update());
+    if (settingModal?.openPage) {
+      settingModal.openPage(page);
     } else {
-      for (let i = 0; i < this.plugin.settings.noteTypes.length; i++) {
-        this.renderNoteTypeRow(objTypesList, i);
-      }
-    }
-
-    containerEl.createEl('hr', { cls: 'ffc-divider' });
-
-    // ── Filtered File Commands ────────────────────────────────────────────────
-    if (this.plugin.settings.filteredCommandsEnabled) {
-      this.filteredCmdsSectionEl = containerEl.createDiv();
-
-      const filteredCmdsHeader = this.filteredCmdsSectionEl.createDiv({ cls: 'ffc-section-header' });
-      new Setting(filteredCmdsHeader).setName('Filtered file commands').setHeading();
-      const addCmdBtn = filteredCmdsHeader.createEl('button', {
-        cls: 'clickable-icon ffc-btn-add',
-        attr: { title: 'Add filtered command', 'aria-label': 'Add filtered command' },
-      });
-      setIcon(addCmdBtn, 'plus');
-      addCmdBtn.onclick = async () => {
-        const id = `ffc-command-${Date.now()}`;
-        this.plugin.settings.commands.push({ id, name: 'New Filtered Command', matchMode: 'all', filters: [] });
-        await this.plugin.saveSettings();
-        this.plugin.registerFilterCommand(this.plugin.settings.commands[this.plugin.settings.commands.length - 1]);
-        this.display();
-      };
-
-      const cmdList = this.filteredCmdsSectionEl.createDiv({ cls: 'setting-group ffc-item-list' });
-      if (this.plugin.settings.commands.length === 0) {
-        cmdList.createEl('p', { text: 'No filtered commands yet. Select + to add one.', cls: 'ffc-hint ffc-item-empty' });
-      } else {
-        for (let i = 0; i < this.plugin.settings.commands.length; i++) {
-          this.renderFilteredCommandRow(cmdList, i);
-        }
-      }
-
-      containerEl.createEl('hr', { cls: 'ffc-divider' });
-    }
-
-    // ── Filtered Files Widget ─────────────────────────────────────────────────
-    if (this.plugin.settings.filteredWidgetEnabled) {
-      this.filteredWidgetSectionEl = containerEl.createDiv();
-      new Setting(this.filteredWidgetSectionEl).setName('Filtered files widget').setHeading();
-
-      new Setting(this.filteredWidgetSectionEl)
-        .setName('Show ribbon icon')
-        .setDesc('Add a button to the left ribbon that opens the filtered files widget.')
-        .addToggle((toggle) => toggle
-          .setValue(this.plugin.settings.filteredWidgetRibbon)
-          .onChange(async (value) => {
-            this.plugin.settings.filteredWidgetRibbon = value;
-            await this.plugin.saveSettings();
-            this.plugin.refreshWidgetRibbonIcon();
-          })
-        );
-
-      new Setting(this.filteredWidgetSectionEl)
-        .setName('Open the widget')
-        .setDesc('Reveal the filtered files widget in the left sidebar.')
-        .addButton((btn) => btn.setButtonText('Open widget').setCta().onClick(() => {
-          void this.plugin.activateWidgetView();
-        }));
-
-      new Setting(this.filteredWidgetSectionEl)
-        .setName('Display name frontmatter key')
-        .setDesc('Show a frontmatter value instead of the filename in the widget. Enter the key you use (e.g. "title"). Leave blank to use the filename.')
-        .addText((text) => text
-          .setPlaceholder('E.g. title')
-          .setValue(this.plugin.settings.ffwDisplayNameKey)
-          .onChange(async (v) => {
-            this.plugin.settings.ffwDisplayNameKey = v.trim();
-            await this.plugin.saveSettings();
-            this.plugin.refreshWidgetViews();
-          })
-        );
-
-      new Setting(this.filteredWidgetSectionEl)
-        .setName('Reset all filter sections')
-        .setDesc('Remove every filter section from the widget. This cannot be undone.')
-        .addButton((btn) => btn.setButtonText('Reset').setWarning().onClick(async () => {
-          this.plugin.settings.ffwSections = [];
-          await this.plugin.saveSettings();
-          this.plugin.refreshWidgetViews();
-        }));
+      console.error('Note Types: could not open the note type sub-page (app.setting.openPage unavailable).');
     }
   }
 
-  // ── Filtered command compact row ────────────────────────────────────────────────
-
-  private renderFilteredCommandRow(containerEl: HTMLElement, index: number): void {
-    const cmd = this.plugin.settings.commands[index];
-    const row = containerEl.createDiv({ cls: 'ffc-item-row' });
-    row.onclick = (e) => {
-      if (!(e.target as Element).closest('.ffc-item-row-actions')) {
-        new FilteredCommandSettingsModal(this.app, this.plugin, index, () => this.display()).open();
-      }
-    };
-
-    const info = row.createDiv({ cls: 'ffc-item-row-info' });
-    info.createDiv({ text: cmd.name || 'Unnamed', cls: 'ffc-item-row-name' });
-    const filterCount = cmd.filters.length;
-    const desc = `${filterCount} filter${filterCount === 1 ? '' : 's'}${cmd.fileTypes ? ` · ${cmd.fileTypes}` : ''}`;
-    info.createDiv({ text: desc, cls: 'ffc-item-row-desc' });
-
-    const actions = row.createDiv({ cls: 'ffc-item-row-actions' });
-
-    const gearBtn = actions.createEl('button', { cls: 'clickable-icon', attr: { 'aria-label': 'Edit settings' } });
-    setIcon(gearBtn, 'settings');
-    gearBtn.onclick = () => {
-      new FilteredCommandSettingsModal(this.app, this.plugin, index, () => this.display()).open();
-    };
-
-    const trashBtn = actions.createEl('button', { cls: 'clickable-icon ffc-btn-icon-danger', attr: { 'aria-label': 'Delete command' } });
-    setIcon(trashBtn, 'trash-2');
-    trashBtn.onclick = () => {
-      new FilteredCommandDeleteModal(this.app, this.plugin, index, () => this.display()).open();
-    };
+  private async addNoteType(): Promise<void> {
+    const s = this.plugin.settings;
+    const id         = `ffc-notetype-${Date.now()}`;
+    const takenSlugs = new Set(s.noteTypes.map((o) => o.commandSlug).filter(Boolean));
+    const baseSlug   = nameToCommandSlug('New Note');
+    let newSlug = baseSlug; let slugN = 2;
+    while (takenSlugs.has(newSlug)) newSlug = `${baseSlug}-${slugN++}`;
+    s.noteTypes.push({
+      id, commandSlug: newSlug, name: 'New Note', templatePath: '', saveFolder: '',
+      fields: [], matchFilters: [], matchMode: 'all', enableFindCommand: false,
+      showInTriggerMenu: false, previewFields: [], canvasFields: [],
+    });
+    await this.plugin.saveSettings();
+    this.plugin.registerNoteTypeCommand(s.noteTypes[s.noteTypes.length - 1]);
+    this.update();
   }
 
-  // ── Note type compact row ─────────────────────────────────────────────────────
-
-  private renderNoteTypeRow(containerEl: HTMLElement, index: number): void {
-    const obj = this.plugin.settings.noteTypes[index];
-    const row = containerEl.createDiv({ cls: 'ffc-item-row' });
-    row.onclick = (e) => {
-      if (!(e.target as Element).closest('.ffc-item-row-actions')) {
-        this.activeNoteType = index;
-        this.display();
-      }
-    };
-
-    const info = row.createDiv({ cls: 'ffc-item-row-info' });
-    info.createDiv({ text: obj.name || 'Unnamed', cls: 'ffc-item-row-name' });
-    if (obj.description) {
-      info.createDiv({ text: obj.description, cls: 'ffc-item-row-desc' });
-    }
-
-    const actions = row.createDiv({ cls: 'ffc-item-row-actions' });
-
-    const gearBtn = actions.createEl('button', { cls: 'clickable-icon', attr: { 'aria-label': 'Edit settings' } });
-    setIcon(gearBtn, 'settings');
-    gearBtn.onclick = () => {
-      this.activeNoteType = index;
-      this.display();
-    };
-
-    const trashBtn = actions.createEl('button', { cls: 'clickable-icon ffc-btn-icon-danger', attr: { 'aria-label': 'Delete note type' } });
-    setIcon(trashBtn, 'trash-2');
-    trashBtn.onclick = () => {
-      new NoteTypeDeleteModal(this.app, this.plugin, index, () => this.display()).open();
-    };
-  }
-
-  // ── Note type sub-page ────────────────────────────────────────────────────────
-
-  private renderNoteTypePage(containerEl: HTMLElement, index: number): void {
-    const obj = this.plugin.settings.noteTypes[index];
-    if (!obj) { this.activeNoteType = null; this.display(); return; }
-
-    const header = containerEl.createDiv({ cls: 'ffc-subpage-header' });
-    const backBtn = header.createEl('button', { cls: 'clickable-icon', attr: { 'aria-label': 'Back' } });
-    setIcon(backBtn, 'arrow-left');
-    backBtn.onclick = () => {
-      this.activeNoteType = null;
-      this.display();
-    };
-    const titleEl = header.createSpan({ text: obj.name || 'Note type', cls: 'ffc-subpage-title' });
-
-    const pageEl = containerEl.createDiv();
-    new NoteTypeSettingsPage(this.app, this.plugin, index, (title) => { titleEl.textContent = title; }).render(pageEl);
+  private async addFilteredCommand(): Promise<void> {
+    const s = this.plugin.settings;
+    const id = `ffc-command-${Date.now()}`;
+    s.commands.push({ id, name: 'New Filtered Command', matchMode: 'all', filters: [] });
+    await this.plugin.saveSettings();
+    this.plugin.registerFilterCommand(s.commands[s.commands.length - 1]);
+    this.update();
   }
 }
