@@ -5,6 +5,29 @@ All notable changes to this plugin are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0]
+
+### Added
+
+- Note types can designate a creation field to receive a highlighted URL. Set
+  **Field for highlighted URL** in a note type's **Creation fields** section.
+  When you run "Note from selection" / "New note from selection" and the
+  selection is a bare `http(s)` URL, the URL is written into that field and the
+  title is left blank for you to fill in, instead of the URL becoming the title.
+  In the combined (multi-type) dialog the URL re-routes to whichever selected
+  type's designated field applies.
+- **Fetch page title from URL** setting (off by default). When enabled, creating
+  a note from a highlighted URL fetches the linked page and pre-fills the title
+  field with its `og:title` / `<title>` (unless you have already typed a title).
+  This makes one network request to the linked site; the request times out after
+  8 seconds and any failure falls back silently.
+
+### Fixed
+
+- The note type settings sub-page no longer jumps back to the top when adding or
+  removing a field, filter, or preview/canvas key. Scroll position is preserved
+  across the re-render.
+
 ## [1.5.15]
 
 ### Fixed

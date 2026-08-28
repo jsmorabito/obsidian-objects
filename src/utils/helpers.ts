@@ -15,6 +15,29 @@ export function stringifyFrontmatterValue(v: unknown): string {
 }
 
 /**
+ * True when `text` is a single bare http(s) URL with no surrounding whitespace.
+ * Used to decide whether a highlighted selection should be routed into a note
+ * type's designated URL field instead of its title.
+ */
+export function isUrl(text: string): boolean {
+  return /^https?:\/\/\S+$/i.test(text.trim());
+}
+
+/**
+ * Strip characters that are illegal in Obsidian note titles / file names,
+ * collapse whitespace, and cap the length, so a fetched page title can be used
+ * as a filename.
+ */
+export function sanitizeNoteTitle(raw: string): string {
+  return raw
+    .replace(/[\\/:*?"<>|#^[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100)
+    .trim();
+}
+
+/**
  * Convert a note type name to a stable command slug.
  * e.g. "My Task" → "my-task", "  Hello World! " → "hello-world"
  */

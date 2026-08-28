@@ -1,7 +1,8 @@
 import { Notice, Plugin, TFile, WorkspaceLeaf, setIcon } from 'obsidian';
 import { DEFAULT_SETTINGS, MyPluginSettingTab } from './settings.ts';
 import { PluginSettings, NoteType, CommandSpec } from './types.ts';
-import { nameToCommandSlug, stringifyFrontmatterValue } from './utils/helpers.ts';
+import { isUrl, nameToCommandSlug, stringifyFrontmatterValue } from './utils/helpers.ts';
+import { fetchPageTitle } from './utils/fetch-title.ts';
 import { VALID_STATUSES, statusSvg } from './utils/status-svg.ts';
 import { FFW_VIEW_TYPE } from './utils/ffw-utils.ts';
 import { FilteredFileModal } from './ui/filtered-file-modal.ts';
@@ -136,13 +137,20 @@ export class FilteredFileCommandsPlugin extends Plugin {
                 .onClick(() => {
                   const current = this.settings.noteTypes.find((o) => o.id === noteType.id);
                   if (!current) { new Notice('Note type not found. Try reloading.'); return; }
+                  const selIsUrl = isUrl(selection);
+                  const routeToField = selIsUrl && !!current.urlFieldKey;
+                  const titlePromise = selIsUrl && this.settings.fetchUrlTitles
+                    ? fetchPageTitle(selection)
+                    : null;
                   new NewNoteModal(
                     this.app, current,
                     async (title, fv, desc) => {
                       editor.replaceRange(`[[${title}]]`, from, to);
                       await this.createNote(current, title, fv, desc);
                     },
-                    selection,
+                    routeToField ? '' : selection,
+                    routeToField ? selection : '',
+                    titlePromise,
                   ).open();
                 });
             });
@@ -458,23 +466,33 @@ export class FilteredFileCommandsPlugin extends Plugin {
           new Notice('No note types defined. Add one in the Note Types settings.');
           return;
         }
-        const selection = editor.getSelection()?.trim();
+        const selection = editor.getSelection()?.trim() ?? '';
+        const selectionIsUrl = selection !== '' && isUrl(selection);
         const from = editor.getCursor('from');
         const to   = editor.getCursor('to');
         const replaceWithLink = async (title: string) => {
           editor.replaceRange(`[[${title}]]`, from, to);
         };
+        // Routing is decided against the first (default-selected) type; the
+        // combined modal re-routes if the user switches to a type with its own
+        // URL field.
+        const routeToField = selectionIsUrl && !!types[0].urlFieldKey;
+        const initialTitle = routeToField ? '' : selection;
+        const urlSelection = selectionIsUrl ? selection : '';
+        const titlePromise = selectionIsUrl && this.settings.fetchUrlTitles
+          ? fetchPageTitle(selection)
+          : null;
         if (types.length === 1) {
           new NewNoteModal(this.app, types[0], async (title, fv, desc) => {
             await replaceWithLink(title);
             await this.createNote(types[0], title, fv, desc);
-          }, selection).open();
+          }, initialTitle, urlSelection, titlePromise).open();
           return;
         }
         new CombinedNewNoteModal(this.app, types, async (noteType, title, fv, desc) => {
           await replaceWithLink(title);
           await this.createNote(noteType, title, fv, desc);
-        }, selection).open();
+        }, initialTitle, urlSelection, titlePromise).open();
       },
     });
 

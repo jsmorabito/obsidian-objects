@@ -15,6 +15,8 @@ Define named types (e.g. *Project*, *Person*, *Book*) with a template, a save fo
 **Note from selection**  
 Select text in the editor, right-click (or use the editor menu), and choose *Note from selection* to create a typed note whose title is pre-filled with the selection. The selection is replaced with the new `[[wikilink]]`.
 
+If the selection is a bare URL and the note type has a **Field for highlighted URL** set (in its *Creation fields* section), the URL is written into that frontmatter field instead of becoming the title. With the optional **Fetch page title from URL** setting enabled, the plugin then makes one network request to the linked page and pre-fills the title with its `og:title` / `<title>`. That setting is off by default; when off, no network requests are made.
+
 **Inline trigger**  
 Set a single trigger character (e.g. `@`) in settings. Typing it in the editor opens a quick picker for any note type that has *Show in trigger menu* enabled.
 
@@ -47,6 +49,7 @@ Open *Settings → Note Types* to configure:
 - **Filtered File Commands** — custom palette commands with frontmatter filters.
 - **Trigger key** — single character for the inline note picker (`@` recommended).
 - **Templates folder** — path to your templates folder (leave blank to auto-detect from the core Templates plugin).
+- **Fetch page title from URL** — off by default. When on, creating a note from a highlighted URL fetches the linked page (one network request, 8-second timeout) to pre-fill the title.
 - **Note Types** — define, edit, and delete your note types.
 - **Filtered Files Widget** — open the widget, set a display-name frontmatter key, or reset all sections.
 

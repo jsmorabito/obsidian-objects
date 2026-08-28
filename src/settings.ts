@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   noteTypes: [],
   templatesFolder: '',
   triggerKey: '',
+  fetchUrlTitles: false,
   ffwSections: [],
   ffwDisplayNameKey: '',
 };
@@ -63,6 +64,18 @@ export class MyPluginSettingTab extends PluginSettingTab {
         text.setPlaceholder('Templates').setValue(this.plugin.settings.templatesFolder || '')
           .onChange(async (value) => {
             this.plugin.settings.templatesFolder = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Fetch page title from URL')
+      .setDesc('When you create a note from a highlighted URL, fetch the linked page and use its title as the note title. This makes a network request to the linked site. Off by default.')
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.fetchUrlTitles)
+          .onChange(async (value) => {
+            this.plugin.settings.fetchUrlTitles = value;
             await this.plugin.saveSettings();
           })
       );

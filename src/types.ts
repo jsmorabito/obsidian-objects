@@ -30,6 +30,12 @@ export interface NoteType {
   templatePath: string;
   saveFolder: string;
   fields: NoteField[];
+  /**
+   * Key of the creation field that receives a highlighted URL when a note of
+   * this type is created from a selection. When set and the selection is a bare
+   * URL, the URL is written into this field instead of becoming the title.
+   */
+  urlFieldKey?: string;
   matchFilters: FilterSpec[];
   matchMode: 'all' | 'any';
   enableFindCommand: boolean;
@@ -106,6 +112,7 @@ export interface PluginSettings {
   noteTypes: NoteType[];
   templatesFolder: string;
   triggerKey: string;
+  fetchUrlTitles: boolean;
   ffwSections: FfwSection[];
   ffwDisplayNameKey: string;
 }

@@ -23,6 +23,13 @@ export class NoteTypeSettingsPage {
 
   private _render(): void {
     const contentEl = this.containerEl;
+
+    // `contentEl.empty()` collapses the page to zero height, so the settings
+    // scroll container snaps back to the top. Capture its position and restore
+    // it once the page has been rebuilt.
+    const scroller = this._scrollParent(contentEl);
+    const prevScroll = scroller?.scrollTop ?? 0;
+
     contentEl.empty();
     contentEl.addClass('ffc-item-page');
 
@@ -180,6 +187,26 @@ export class NoteTypeSettingsPage {
       })
     );
 
+    const urlFieldOptions = (obj.fields ?? []).filter((f) => f.key?.trim());
+    new Setting(fieldsSection)
+      .setName('Field for highlighted URL')
+      .setDesc('When you create a note of this type from a highlighted URL, the URL is written into this field instead of becoming the title.')
+      .addDropdown((dd) => {
+        dd.addOption('', '— none —');
+        for (const f of urlFieldOptions) {
+          dd.addOption(f.key, f.label?.trim() ? `${f.label} (${f.key})` : f.key);
+        }
+        // Keep a stale reference visible so it isn't silently dropped.
+        if (obj.urlFieldKey && !urlFieldOptions.some((f) => f.key === obj.urlFieldKey)) {
+          dd.addOption(obj.urlFieldKey, `${obj.urlFieldKey} (missing field)`);
+        }
+        dd.setValue(obj.urlFieldKey ?? '');
+        dd.onChange(async (value) => {
+          obj.urlFieldKey = value || undefined;
+          await this.plugin.saveSettings();
+        });
+      });
+
     // ── Preview Fields ────────────────────────────────────────────────────────
     const previewSection = contentEl.createDiv({ cls: 'ffc-filters-section' });
     previewSection.createEl('p', { text: 'Preview fields', cls: 'ffc-filters-title' });
@@ -252,6 +279,23 @@ export class NoteTypeSettingsPage {
           .setValue(obj.imageKey ?? '')
           .onChange(async (value) => { obj.imageKey = value.trim(); await this.plugin.saveSettings(); })
       );
+
+    if (scroller && prevScroll) {
+      scroller.scrollTop = Math.min(prevScroll, scroller.scrollHeight - scroller.clientHeight);
+    }
+  }
+
+  /** Nearest vertically-scrollable ancestor of `el`, or null. */
+  private _scrollParent(el: HTMLElement): HTMLElement | null {
+    let node: HTMLElement | null = el.parentElement;
+    while (node) {
+      const overflowY = getComputedStyle(node).overflowY;
+      if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
   }
 
   private _renderNoteMatchFilter(container: HTMLElement, filterIndex: number): void {
@@ -313,7 +357,10 @@ export class NoteTypeSettingsPage {
     const keyInput = row.createEl('input', { cls: 'ffc-input ffc-input-key' });
     keyInput.type = 'text'; keyInput.placeholder = 'Frontmatter key'; keyInput.value = field.key ?? '';
     keyInput.title = 'The frontmatter property key written into the new file';
-    keyInput.addEventListener('change', () => { field.key = keyInput.value.trim(); void this.plugin.saveSettings(); });
+    keyInput.addEventListener('change', () => {
+      field.key = keyInput.value.trim();
+      void this.plugin.saveSettings();
+    });
 
     const typeSelect = row.createEl('select', { cls: 'ffc-select' });
     for (const t of [{ value: 'text', label: 'Text' }, { value: 'list', label: 'List' }]) {
