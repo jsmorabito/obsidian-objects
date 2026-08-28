@@ -2999,7 +2999,6 @@ var FilteredFileCommandsPlugin = class extends import_obsidian16.Plugin {
     this.registeredCommandIds.add(cmdId);
   }
   registerNewNoteCommand() {
-    var _a, _b;
     this.addCommand({
       id: "ffc-new-note",
       name: "New note",
@@ -3028,13 +3027,13 @@ var FilteredFileCommandsPlugin = class extends import_obsidian16.Plugin {
       id: "ffc-new-note-from-selection",
       name: "New note from selection",
       editorCallback: (editor) => {
-        var _a2;
+        var _a;
         const types = this.settings.noteTypes;
         if (types.length === 0) {
           new import_obsidian16.Notice("No note types defined. Add one in the Note Types settings.");
           return;
         }
-        const selection = (_a2 = editor.getSelection()) == null ? void 0 : _a2.trim();
+        const selection = (_a = editor.getSelection()) == null ? void 0 : _a.trim();
         const from = editor.getCursor("from");
         const to = editor.getCursor("to");
         const replaceWithLink = async (title) => {
@@ -3053,15 +3052,6 @@ var FilteredFileCommandsPlugin = class extends import_obsidian16.Plugin {
         }, selection).open();
       }
     });
-    const ttPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.getPlugin) == null ? void 0 : _b.call(_a, "text-formatting-toolbar");
-    if (ttPlugin == null ? void 0 : ttPlugin.api) {
-      ttPlugin.api.addCommand({
-        // This is text-formatting-toolbar's own addCommand API (not Obsidian's), which requires the full "pluginId:commandId" form.
-        id: "filtered-file-commands:ffc-new-note-from-selection",
-        icon: "box-select",
-        name: "New note from selection"
-      });
-    }
   }
   // ── File creation ─────────────────────────────────────────────────────────────
   async createNote(noteType, title, fieldValues = {}, description = "") {

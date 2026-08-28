@@ -478,20 +478,14 @@ export class FilteredFileCommandsPlugin extends Plugin {
       },
     });
 
-    // Register with text-formatting-toolbar if available
-    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call --
-       text-formatting-toolbar is a third-party plugin with no published types. */
-    const ttPlugin = (this.app as any).plugins?.getPlugin?.('text-formatting-toolbar');
-    if (ttPlugin?.api) {
-      ttPlugin.api.addCommand({
-        // This is text-formatting-toolbar's own addCommand API (not Obsidian's), which requires the full "pluginId:commandId" form.
-        id: 'filtered-file-commands:ffc-new-note-from-selection',
-        icon: 'box-select',
-        name: 'New note from selection',
-      });
-    }
-    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call --
-       End of the text-formatting-toolbar reflection block. */
+    // Note: we deliberately do NOT push this command into the text-formatting-toolbar
+    // plugin ourselves. That toolbar's external-command registry is owned by Commander,
+    // which manages it with setCommands() (a full replace) — an uncoordinated addCommand()
+    // here produces a toolbar button that Commander wipes on its next sync and that the
+    // user cannot remove or reorder from any settings UI. Anyone who wants
+    // "New note from selection" on the floating toolbar can add the regular
+    // `filtered-file-commands:ffc-new-note-from-selection` command via Commander's
+    // "Text Toolbar" tab. The editor context menu ("Note from selection") also covers this.
   }
 
   // ── File creation ─────────────────────────────────────────────────────────────

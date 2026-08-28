@@ -1,7 +1,7 @@
 {
   "id": "filtered-file-commands",
   "name": "Note Types",
-  "version": "1.5.14",
+  "version": "1.5.15",
   "minAppVersion": "1.8.7",
   "description": "Define note types with creation commands, filtered file pickers, hover previews, styled wikilinks, and a sidebar widget.",
   "author": "John Morabito",
