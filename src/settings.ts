@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   commands: [],
   filteredCommandsEnabled: false,
   filteredWidgetEnabled: false,
+  filteredWidgetRibbon: false,
   noteTypes: [],
   templatesFolder: '',
   triggerKey: '',
@@ -102,6 +103,7 @@ export class MyPluginSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.filteredWidgetEnabled = value;
           await this.plugin.saveSettings();
+          this.plugin.refreshWidgetRibbonIcon();
           this.display();
         })
     );
@@ -178,6 +180,18 @@ export class MyPluginSettingTab extends PluginSettingTab {
     if (this.plugin.settings.filteredWidgetEnabled) {
       this.filteredWidgetSectionEl = containerEl.createDiv();
       new Setting(this.filteredWidgetSectionEl).setName('Filtered files widget').setHeading();
+
+      new Setting(this.filteredWidgetSectionEl)
+        .setName('Show ribbon icon')
+        .setDesc('Add a button to the left ribbon that opens the filtered files widget.')
+        .addToggle((toggle) => toggle
+          .setValue(this.plugin.settings.filteredWidgetRibbon)
+          .onChange(async (value) => {
+            this.plugin.settings.filteredWidgetRibbon = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshWidgetRibbonIcon();
+          })
+        );
 
       new Setting(this.filteredWidgetSectionEl)
         .setName('Open the widget')

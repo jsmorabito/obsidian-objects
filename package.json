@@ -1,6 +1,6 @@
 {
   "name": "obsidian-objects",
-  "version": "1.5.13",
+  "version": "1.5.14",
   "description": "Define custom note types with creation commands, filtered file pickers, hover previews, and a sidebar widget.",
   "main": "main.js",
   "scripts": {

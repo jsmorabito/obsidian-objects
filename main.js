@@ -827,6 +827,7 @@ var DEFAULT_SETTINGS = {
   commands: [],
   filteredCommandsEnabled: false,
   filteredWidgetEnabled: false,
+  filteredWidgetRibbon: false,
   noteTypes: [],
   templatesFolder: "",
   triggerKey: "",
@@ -890,6 +891,7 @@ var MyPluginSettingTab = class extends import_obsidian7.PluginSettingTab {
       (toggle) => toggle.setValue(this.plugin.settings.filteredWidgetEnabled).onChange(async (value) => {
         this.plugin.settings.filteredWidgetEnabled = value;
         await this.plugin.saveSettings();
+        this.plugin.refreshWidgetRibbonIcon();
         this.display();
       })
     );
@@ -965,6 +967,13 @@ var MyPluginSettingTab = class extends import_obsidian7.PluginSettingTab {
     if (this.plugin.settings.filteredWidgetEnabled) {
       this.filteredWidgetSectionEl = containerEl.createDiv();
       new import_obsidian7.Setting(this.filteredWidgetSectionEl).setName("Filtered files widget").setHeading();
+      new import_obsidian7.Setting(this.filteredWidgetSectionEl).setName("Show ribbon icon").setDesc("Add a button to the left ribbon that opens the filtered files widget.").addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.filteredWidgetRibbon).onChange(async (value) => {
+          this.plugin.settings.filteredWidgetRibbon = value;
+          await this.plugin.saveSettings();
+          this.plugin.refreshWidgetRibbonIcon();
+        })
+      );
       new import_obsidian7.Setting(this.filteredWidgetSectionEl).setName("Open the widget").setDesc("Reveal the filtered files widget in the left sidebar.").addButton((btn) => btn.setButtonText("Open widget").setCta().onClick(() => {
         void this.plugin.activateWidgetView();
       }));
@@ -2619,6 +2628,8 @@ var FilteredFileCommandsPlugin = class extends import_obsidian16.Plugin {
      * in their own onunload() to avoid holding a dead reference.
      */
     this.triggerProviders = /* @__PURE__ */ new Map();
+    // ── Filtered Files Widget helpers ─────────────────────────────────────────────
+    this.widgetRibbonEl = null;
   }
   registerTriggerProvider(provider) {
     this.triggerProviders.set(provider.id, provider);
@@ -2632,7 +2643,7 @@ var FilteredFileCommandsPlugin = class extends import_obsidian16.Plugin {
     this.addSettingTab(new MyPluginSettingTab(this.app, this));
     this.registerView(FFW_VIEW_TYPE, (leaf) => new FilteredFilesWidgetView(leaf, this));
     if (this.settings.filteredWidgetEnabled) {
-      this.addRibbonIcon("file-sliders", "Open filtered files widget", () => this.activateWidgetView());
+      this.refreshWidgetRibbonIcon();
       this.addCommand({
         id: "ffc-open-filtered-files-widget",
         name: "Open filtered files widget",
@@ -2827,7 +2838,20 @@ var FilteredFileCommandsPlugin = class extends import_obsidian16.Plugin {
       document.addEventListener("mouseup", onMouseUp);
     });
   }
-  // ── Filtered Files Widget helpers ─────────────────────────────────────────────
+  /** Add or remove the widget ribbon icon to match the current settings. */
+  refreshWidgetRibbonIcon() {
+    const shouldShow = this.settings.filteredWidgetEnabled && this.settings.filteredWidgetRibbon;
+    if (shouldShow && !this.widgetRibbonEl) {
+      this.widgetRibbonEl = this.addRibbonIcon(
+        "file-sliders",
+        "Open filtered files widget",
+        () => this.activateWidgetView()
+      );
+    } else if (!shouldShow && this.widgetRibbonEl) {
+      this.widgetRibbonEl.remove();
+      this.widgetRibbonEl = null;
+    }
+  }
   async activateWidgetView() {
     var _a;
     const { workspace } = this.app;

@@ -57,7 +57,7 @@ export class FilteredFileCommandsPlugin extends Plugin {
     // ── Filtered Files Widget ───────────────────────────────────────────────────
     this.registerView(FFW_VIEW_TYPE, (leaf) => new FilteredFilesWidgetView(leaf, this));
     if (this.settings.filteredWidgetEnabled) {
-      this.addRibbonIcon('file-sliders', 'Open filtered files widget', () => this.activateWidgetView());
+      this.refreshWidgetRibbonIcon();
       this.addCommand({
         id:       'ffc-open-filtered-files-widget',
         name:     'Open filtered files widget',
@@ -282,6 +282,23 @@ export class FilteredFileCommandsPlugin extends Plugin {
   }
 
   // ── Filtered Files Widget helpers ─────────────────────────────────────────────
+
+  private widgetRibbonEl: HTMLElement | null = null;
+
+  /** Add or remove the widget ribbon icon to match the current settings. */
+  refreshWidgetRibbonIcon(): void {
+    const shouldShow = this.settings.filteredWidgetEnabled && this.settings.filteredWidgetRibbon;
+    if (shouldShow && !this.widgetRibbonEl) {
+      this.widgetRibbonEl = this.addRibbonIcon(
+        'file-sliders',
+        'Open filtered files widget',
+        () => this.activateWidgetView(),
+      );
+    } else if (!shouldShow && this.widgetRibbonEl) {
+      this.widgetRibbonEl.remove();
+      this.widgetRibbonEl = null;
+    }
+  }
 
   async activateWidgetView(): Promise<void> {
     const { workspace } = this.app;

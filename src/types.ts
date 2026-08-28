@@ -102,6 +102,7 @@ export interface PluginSettings {
   commands: CommandSpec[];
   filteredCommandsEnabled: boolean;
   filteredWidgetEnabled: boolean;
+  filteredWidgetRibbon: boolean;
   noteTypes: NoteType[];
   templatesFolder: string;
   triggerKey: string;
